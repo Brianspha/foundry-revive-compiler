@@ -1,4 +1,4 @@
-use foundry_compilers_artifacts::{Source, Sources, SolcLanguage};
+use foundry_compilers_artifacts::{SolcLanguage, Source, Sources};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

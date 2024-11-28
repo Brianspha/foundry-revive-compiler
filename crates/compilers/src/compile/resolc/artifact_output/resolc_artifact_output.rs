@@ -64,9 +64,12 @@ impl From<ResolcContractArtifact> for CompactContractBytecode {
 
 impl From<ResolcContractArtifact> for CompactContract {
     fn from(value: ResolcContractArtifact) -> Self {
-        // See https://docs.soliditylang.org/en/develop/abi-spec.html
         let (standard_abi, compact_bytecode, _) = create_byte_code(&value);
-        Self { bin: Some(compact_bytecode.object.clone()), bin_runtime: Some(compact_bytecode.object), abi: Some(standard_abi) }
+        Self { 
+            bin: Some(compact_bytecode.object.clone()),
+            bin_runtime: Some(compact_bytecode.object),
+            abi: Some(standard_abi)
+        }
     }
 }
 
@@ -100,22 +103,7 @@ impl ResolcArtifactOutput {
         contract: Contract,
         source_file: Option<&SourceFile>,
     ) -> ResolcContractArtifact {
-       /*  let Contract {
-            abi,
-            metadata,
-            userdoc,
-            devdoc,
-            ir,
-            storage_layout,
-            transient_storage_layout,
-            evm,
-            ewasm,
-            ir_optimized,
-            ir_optimized_ast,
-        } = contract;
-        let mut output = ResolcContractArtifact::default();*/
-        todo!("Implement this function converting standard json to revive json");
-        
+        todo!("Implement this function converting standard json to revive json")
     }
 }
 
@@ -123,10 +111,12 @@ fn create_byte_code(
     value: &ResolcContractArtifact,
 ) -> (JsonAbi, CompactBytecode, CompactDeployedBytecode) {
     let binding = value.artifact.contracts.clone().unwrap();
-    let parent_contract =
-        binding.values().last().and_then(|inner_map| inner_map.values().next()).unwrap();
-    let abi_array: Vec<serde_json::Value> =
-        serde_json::from_value(parent_contract.clone().abi.unwrap()).unwrap();
+    let parent_contract = binding.values()
+        .last()
+        .and_then(|inner_map| inner_map.values().next())
+        .unwrap();
+
+    let abi_array: Vec<serde_json::Value> = serde_json::from_value(parent_contract.clone().abi.unwrap()).unwrap();
     let mut standard_abi = JsonAbi {
         constructor: None,
         fallback: None,
@@ -138,30 +128,29 @@ fn create_byte_code(
 
     for item in abi_array {
         match item["type"].as_str() {
-            Some("constructor") => {
-                standard_abi.constructor = serde_json::from_value(item).unwrap();
-            }
-            Some("fallback") => {
-                standard_abi.fallback = serde_json::from_value(item).unwrap();
-            }
-            Some("receive") => {
-                standard_abi.receive = serde_json::from_value(item).unwrap();
-            }
+            Some("constructor") => standard_abi.constructor = serde_json::from_value(item).unwrap(),
+            Some("fallback") => standard_abi.fallback = serde_json::from_value(item).unwrap(),
+            Some("receive") => standard_abi.receive = serde_json::from_value(item).unwrap(),
             Some("function") => {
                 let function: Function = serde_json::from_value(item).unwrap();
-                standard_abi
-                    .functions
+                standard_abi.functions
                     .entry(function.name.clone())
                     .or_insert_with(Vec::new)
                     .push(function);
             }
             Some("event") => {
                 let event: Event = serde_json::from_value(item).unwrap();
-                standard_abi.events.entry(event.name.clone()).or_insert_with(Vec::new).push(event);
+                standard_abi.events
+                    .entry(event.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(event);
             }
             Some("error") => {
                 let error: alloy_json_abi::Error = serde_json::from_value(item).unwrap();
-                standard_abi.errors.entry(error.name.clone()).or_insert_with(Vec::new).push(error);
+                standard_abi.errors
+                    .entry(error.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(error);
             }
             _ => continue,
         }
@@ -173,8 +162,7 @@ fn create_byte_code(
     let raw_deployed_bytecode = binding.object.as_str();
 
     let bytecode = BytecodeObject::Bytecode(Bytes::from(hex::decode(raw_bytecode).unwrap()));
-    let deployed_bytecode =
-        BytecodeObject::Bytecode(Bytes::from(hex::decode(raw_deployed_bytecode).unwrap()));
+    let deployed_bytecode = BytecodeObject::Bytecode(Bytes::from(hex::decode(raw_deployed_bytecode).unwrap()));
 
     let compact_bytecode = CompactBytecode {
         object: bytecode,
