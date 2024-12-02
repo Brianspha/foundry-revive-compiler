@@ -33,7 +33,7 @@ impl Default for ResolcContractArtifact {
                 errors: None,
                 version: None,
                 long_version: None,
-                zk_version: None,
+                revive_version: None,
             },
         }
     }
