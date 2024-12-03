@@ -565,9 +565,9 @@ fn compile_parallel<'a>(
                         &start.elapsed(),
                     );
                     let result = CompilerOutput {
-                        errors:output.errors,
-                        contracts:output.contracts,
-                        sources:output.sources
+                        errors: output.errors,
+                        contracts: output.contracts,
+                        sources: output.sources,
                     };
                     (input, result, profile, actually_dirty)
                 });

@@ -17,6 +17,7 @@ pub struct ResolcOptimizer {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ResolcSettings {
     optimizer: ResolcOptimizer,
     #[serde(rename = "outputSelection")]
@@ -29,15 +30,6 @@ pub struct ResolcRestrictions;
 impl Default for ResolcOptimizer {
     fn default() -> Self {
         Self { enabled: false, runs: 200 }
-    }
-}
-
-impl Default for ResolcSettings {
-    fn default() -> Self {
-        Self {
-            optimizer: ResolcOptimizer::default(),
-            outputselection: HashMap::<String, HashMap<String, Vec<String>>>::default(),
-        }
     }
 }
 

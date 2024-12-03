@@ -7,13 +7,17 @@ use std::{
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::{hex, Bytes};
 use foundry_compilers_artifacts::{
-    BytecodeObject, CompactBytecode, CompactContract, CompactContractBytecode, CompactContractBytecodeCow, CompactDeployedBytecode, Contract, SolcLanguage, SourceFile
+    BytecodeObject, CompactBytecode, CompactContract, CompactContractBytecode,
+    CompactContractBytecodeCow, CompactDeployedBytecode, Contract, SolcLanguage, SourceFile,
 };
 use path_slash::PathBufExt;
 use serde::{Deserialize, Serialize};
 use yansi::Paint;
 
-use crate::{contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile, ArtifactOutput, Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig};
+use crate::{
+    contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile, ArtifactOutput,
+    Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig,
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct ResolcArtifactOutput();
@@ -108,10 +112,7 @@ impl ResolcArtifactOutput {
     ) -> ResolcContractArtifact {
         ResolcContractArtifact {
             artifact: revive_solidity::SolcStandardJsonOutputContract {
-                abi: match json_abi_to_revive_abi(contract.abi) {
-                    Ok(results) => results,
-                    _ => None,
-                },
+                abi: json_abi_to_revive_abi(contract.abi).unwrap_or_default(),
                 metadata: serde_json::from_str(
                     &serde_json::to_string(&contract.metadata).unwrap_or_default(),
                 )
@@ -143,7 +144,7 @@ impl ResolcArtifactOutput {
     ///
     /// **Note:** This does only convert, but _NOT_ write the artifacts to disk, See
     /// [`Self::on_output()`]
-    fn output_to_artifacts<C>(
+    fn output_to_artifacts(
         &self,
         contracts: &VersionedContracts,
         sources: &VersionedSourceFiles,
@@ -292,7 +293,7 @@ impl ResolcArtifactOutput {
 fn json_abi_to_revive_abi(
     abi: Option<JsonAbi>,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
-    Ok(abi.map(|value| serde_json::to_value(value)).transpose()?)
+    Ok(abi.map(serde_json::to_value).transpose()?)
 }
 fn create_byte_code(
     parent_contract: &ResolcContractArtifact,
