@@ -1,2 +1,2 @@
 pub mod project;
-pub mod artifact_output;
+pub mod resolc_artifact_output;

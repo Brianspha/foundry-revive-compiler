@@ -1,7 +1,7 @@
 use foundry_compilers_artifacts::{SolcLanguage, Source, Sources};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::CompilerInput;
 

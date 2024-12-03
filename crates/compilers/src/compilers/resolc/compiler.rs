@@ -42,7 +42,7 @@ impl Compiler for Resolc {
         compilers::CompilerOutput<foundry_compilers_artifacts::Error>,
         foundry_compilers_core::error::SolcError,
     > {
-        panic!("`Compiler::compile` not supported for `Resolc`, should call Resolc::compile()");
+        todo!("Implement if needed");
     }
 }
 
@@ -63,7 +63,6 @@ impl Resolc {
 
     pub fn compile_output<T: Serialize>(&self, input: &ResolcInput) -> Result<Vec<u8>> {
         let mut cmd = self.configure_cmd();
-        println!("input: {:?}\n\n", input.clone());
         let mut child = cmd.spawn().map_err(|err| SolcError::io(err, &self.resolc))?;
 
         let stdin = child.stdin.as_mut().unwrap();
