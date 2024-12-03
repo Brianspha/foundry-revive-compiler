@@ -15,8 +15,8 @@ pub use artifact_output::*;
 pub mod buildinfo;
 
 pub mod cache;
-
 pub mod flatten;
+pub mod resolc;
 
 pub mod resolver;
 pub use resolver::Graph;
