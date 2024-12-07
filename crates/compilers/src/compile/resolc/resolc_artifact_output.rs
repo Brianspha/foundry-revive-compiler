@@ -12,7 +12,6 @@ use foundry_compilers_artifacts::{
 };
 use path_slash::PathBufExt;
 use serde::{Deserialize, Serialize};
-use yansi::Paint;
 
 use crate::{
     contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile, ArtifactOutput,
@@ -144,7 +143,7 @@ impl ResolcArtifactOutput {
     ///
     /// **Note:** This does only convert, but _NOT_ write the artifacts to disk, See
     /// [`Self::on_output()`]
-    fn output_to_artifacts(
+    pub fn resolc_output_to_artifacts(
         &self,
         contracts: &VersionedContracts,
         sources: &VersionedSourceFiles,

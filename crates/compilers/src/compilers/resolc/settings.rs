@@ -73,3 +73,12 @@ impl CompilerSettings for ResolcSettings {
         self
     }
 }
+
+impl ResolcSettings {
+    pub fn new(
+        optimizer: ResolcOptimizer,
+        output_selection: HashMap<String, HashMap<String, Vec<String>>>,
+    ) -> Self {
+        Self { optimizer, outputselection: output_selection }
+    }
+}

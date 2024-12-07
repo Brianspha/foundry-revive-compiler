@@ -268,7 +268,7 @@ impl<'a> CompiledState<'a> {
         // write all artifacts via the handler but only if the build succeeded and project wasn't
         // configured with `no_artifacts == true`
         let compiled_artifacts = if project.no_artifacts {
-            project.artifacts_handler().output_to_artifacts(
+            project.artifacts_handler().resolc_output_to_artifacts(
                 &output.contracts,
                 &output.sources,
                 ctx,
