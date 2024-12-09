@@ -9,6 +9,7 @@ use semver::{Version, VersionReq};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     str::FromStr,
@@ -45,8 +46,8 @@ macro_rules! take_solc_installer_lock {
 /// we should download.
 /// The boolean value marks whether there was an error accessing the release list
 #[cfg(feature = "svm-solc")]
-pub static RELEASES: once_cell::sync::Lazy<(svm::Releases, Vec<Version>, bool)> =
-    once_cell::sync::Lazy::new(|| {
+pub static RELEASES: std::sync::LazyLock<(svm::Releases, Vec<Version>, bool)> =
+    std::sync::LazyLock::new(|| {
         match serde_json::from_str::<svm::Releases>(svm_builds::RELEASE_LIST_JSON) {
             Ok(releases) => {
                 let sorted_versions = releases.clone().into_versions();
@@ -428,8 +429,11 @@ impl Solc {
         let mut child = cmd.spawn().map_err(self.map_io_err())?;
         debug!("spawned");
 
-        let stdin = child.stdin.as_mut().unwrap();
-        serde_json::to_writer(stdin, input)?;
+        {
+            let mut stdin = io::BufWriter::new(child.stdin.take().unwrap());
+            serde_json::to_writer(&mut stdin, input)?;
+            stdin.flush().map_err(self.map_io_err())?;
+        }
         debug!("wrote JSON input to stdin");
 
         let output = child.wait_with_output().map_err(self.map_io_err())?;

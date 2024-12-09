@@ -9,14 +9,14 @@ use foundry_compilers_artifacts::{
     output_selection::OutputSelection,
     remappings::Remapping,
     sources::{Source, Sources},
-    BytecodeHash, Error, EvmVersion, Settings, Severity, SolcInput,
+    BytecodeHash, Contract, Error, EvmVersion, Settings, Severity, SolcInput,
 };
 use foundry_compilers_core::error::Result;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
 };
@@ -43,8 +43,12 @@ impl Compiler for SolcCompiler {
     type ParsedSource = SolData;
     type Settings = SolcSettings;
     type Language = SolcLanguage;
+    type CompilerContract = Contract;
 
-    fn compile(&self, input: &Self::Input) -> Result<CompilerOutput<Self::CompilationError>> {
+    fn compile(
+        &self,
+        input: &Self::Input,
+    ) -> Result<CompilerOutput<Self::CompilationError, Self::CompilerContract>> {
         let mut solc = match self {
             Self::Specific(solc) => solc.clone(),
 
@@ -62,6 +66,7 @@ impl Compiler for SolcCompiler {
             errors: solc_output.errors,
             contracts: solc_output.contracts,
             sources: solc_output.sources,
+            metadata: BTreeMap::new(),
         };
 
         Ok(output)
@@ -201,8 +206,8 @@ impl<V: Ord + Copy> Restriction<V> {
     ///
     /// If given None, only returns true if no restrictions are set
     pub fn satisfies(&self, value: Option<V>) -> bool {
-        self.min.map_or(true, |min| value.map_or(false, |v| v >= min))
-            && self.max.map_or(true, |max| value.map_or(false, |v| v <= max))
+        self.min.is_none_or(|min| value.is_some_and(|v| v >= min))
+            && self.max.is_none_or(|max| value.is_some_and(|v| v <= max))
     }
 
     /// Combines two restrictions into a new one
@@ -346,7 +351,7 @@ impl CompilerSettings for SolcSettings {
         // Ensure that we either don't have min optimizer runs set or that the optimizer is enabled
         satisfies &= optimizer_runs
             .min
-            .map_or(true, |min| min == 0 || self.optimizer.enabled.unwrap_or_default());
+            .is_none_or(|min| min == 0 || self.optimizer.enabled.unwrap_or_default());
 
         satisfies
     }
@@ -457,6 +462,7 @@ mod tests {
             errors: out.errors,
             contracts: Default::default(),
             sources: Default::default(),
+            metadata: Default::default(),
         };
 
         let v = Version::new(0, 8, 12);
