@@ -616,14 +616,18 @@ impl GroupedSources {
 
     /// Returns true if the file was included with the given version.
     pub fn contains(&self, file: &Path, version: &Version) -> bool {
-        self.inner.get(file).map_or(false, |versions| versions.contains(version))
+        self.inner.get(file).is_some_and(|versions| versions.contains(version))
     }
 }
 
 /// A helper abstraction over the [`CompilerCache`] used to determine what files need to compiled
 /// and which `Artifacts` can be reused.
 #[derive(Debug)]
-pub(crate) struct ArtifactsCacheInner<'a, T: ArtifactOutput, C: Compiler> {
+pub(crate) struct ArtifactsCacheInner<
+    'a,
+    T: ArtifactOutput<CompilerContract = C::CompilerContract>,
+    C: Compiler,
+> {
     /// The preexisting cache file.
     pub cache: CompilerCache<C::Settings>,
 
@@ -652,7 +656,9 @@ pub(crate) struct ArtifactsCacheInner<'a, T: ArtifactOutput, C: Compiler> {
     pub content_hashes: HashMap<PathBuf, String>,
 }
 
-impl<T: ArtifactOutput, C: Compiler> ArtifactsCacheInner<'_, T, C> {
+impl<T: ArtifactOutput<CompilerContract = C::CompilerContract>, C: Compiler>
+    ArtifactsCacheInner<'_, T, C>
+{
     /// Creates a new cache entry for the file
     fn create_cache_entry(&mut self, file: PathBuf, source: &Source) {
         let imports = self
@@ -783,9 +789,7 @@ impl<T: ArtifactOutput, C: Compiler> ArtifactsCacheInner<'_, T, C> {
 
         let mut dirty_profiles = HashSet::new();
         for (profile, settings) in &self.cache.profiles {
-            if !existing_profiles
-                .get(profile.as_str())
-                .map_or(false, |p| p.can_use_cached(settings))
+            if !existing_profiles.get(profile.as_str()).is_some_and(|p| p.can_use_cached(settings))
             {
                 trace!("dirty profile: {}", profile);
                 dirty_profiles.insert(profile.clone());
@@ -907,20 +911,26 @@ impl<T: ArtifactOutput, C: Compiler> ArtifactsCacheInner<'_, T, C> {
 /// Abstraction over configured caching which can be either non-existent or an already loaded cache
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub(crate) enum ArtifactsCache<'a, T: ArtifactOutput, C: Compiler> {
+pub(crate) enum ArtifactsCache<
+    'a,
+    T: ArtifactOutput<CompilerContract = C::CompilerContract>,
+    C: Compiler,
+> {
     /// Cache nothing on disk
     Ephemeral(GraphEdges<C::ParsedSource>, &'a Project<C, T>),
     /// Handles the actual cached artifacts, detects artifacts that can be reused
     Cached(ArtifactsCacheInner<'a, T, C>),
 }
 
-impl<'a, T: ArtifactOutput, C: Compiler> ArtifactsCache<'a, T, C> {
+impl<'a, T: ArtifactOutput<CompilerContract = C::CompilerContract>, C: Compiler>
+    ArtifactsCache<'a, T, C>
+{
     /// Create a new cache instance with the given files
     pub fn new(project: &'a Project<C, T>, edges: GraphEdges<C::ParsedSource>) -> Result<Self> {
         /// Returns the [CompilerCache] to use
         ///
         /// Returns a new empty cache if the cache does not exist or `invalidate_cache` is set.
-        fn get_cache<T: ArtifactOutput, C: Compiler>(
+        fn get_cache<T: ArtifactOutput<CompilerContract = C::CompilerContract>, C: Compiler>(
             project: &Project<C, T>,
             invalidate_cache: bool,
         ) -> CompilerCache<C::Settings> {

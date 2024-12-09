@@ -4,8 +4,8 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Foundry Maintainers"]
-version = "0.12.3"
-rust-version = "1.70"
+version = "0.12.6"
+rust-version = "1.83"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/foundry-rs/compilers"
@@ -37,7 +37,7 @@ foundry-compilers-artifacts-solc = { path = "crates/artifacts/solc", version = "
 foundry-compilers-artifacts-vyper = { path = "crates/artifacts/vyper", version = "0.12.3" }
 foundry-compilers-core = { path = "crates/core", version = "0.12.3" }
 revive-solidity = { git = "https://github.com/paritytech/revive", tag = "v0.1.0-dev-4", package = "revive-solidity" }
-revive-llvm-context = { git = "https://github.com/paritytech/revive", tag = "v0.1.0-dev-4", package = "revive-llvm-context" }
+revive-llvm-context = { git = "https://github.com/paritytech/revive", tag = "v0.1.0-dev-4", package = "revive-llvm-context" 
 
 alloy-json-abi = { version = "0.8", features = ["serde_json"] }
 alloy-primitives = { version = "0.8", features = ["serde", "rand"] }
@@ -45,7 +45,6 @@ cfg-if = "1.0"
 dunce = "1.0"
 md-5 = "0.10"
 memmap2 = "0.9"
-once_cell = "1.19"
 path-slash = "0.2"
 rayon = "1.8"
 regex = "1.10"
@@ -56,7 +55,7 @@ similar-asserts = "1"
 solar-parse = { version = "=0.1.0", default-features = false }
 svm = { package = "svm-rs", version = "0.5", default-features = false }
 tempfile = "3.9"
-thiserror = "1"
+thiserror = "2"
 tracing = "0.1"
 walkdir = "2.5"
 yansi = "1.0"
