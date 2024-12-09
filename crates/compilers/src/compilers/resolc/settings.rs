@@ -74,6 +74,11 @@ impl CompilerSettings for ResolcSettings {
     }
 }
 
+impl ResolcOptimizer {
+    pub fn new(enabled: bool, runs: u64) -> Self {
+        Self { enabled, runs }
+    }
+}
 impl ResolcSettings {
     pub fn new(
         optimizer: ResolcOptimizer,
