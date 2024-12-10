@@ -294,6 +294,17 @@ fn json_abi_to_revive_abi(
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     Ok(abi.map(serde_json::to_value).transpose()?)
 }
+pub fn revive_abi_to_json_abi_(
+    abi: Option<serde_json::Value>,
+) -> Result<Option<JsonAbi>, Box<dyn std::error::Error>> {
+    match abi {
+        Some(value) => {
+            let json_str = serde_json::to_string(&value)?;
+            Ok(Some(JsonAbi::from_json_str(&json_str)?))
+        }
+        None => Ok(None),
+    }
+}
 fn create_byte_code(
     parent_contract: &ResolcContractArtifact,
 ) -> (JsonAbi, CompactBytecode, CompactDeployedBytecode) {
