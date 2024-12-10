@@ -11,6 +11,7 @@ use foundry_compilers_artifacts::{
     CompactContractBytecodeCow, CompactDeployedBytecode, Contract, SolcLanguage, SourceFile,
 };
 use path_slash::PathBufExt;
+use revive_solidity::SolcStandardJsonOutputContractEVM;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -23,24 +24,51 @@ pub struct ResolcArtifactOutput();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResolcContractArtifact {
-    pub artifact: revive_solidity::SolcStandardJsonOutputContract,
+    /// The contract ABI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abi: Option<serde_json::Value>,
+    /// The contract metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    /// The contract developer documentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub devdoc: Option<serde_json::Value>,
+    /// The contract user documentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub userdoc: Option<serde_json::Value>,
+    /// The contract storage layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_layout: Option<serde_json::Value>,
+    /// Contract's bytecode and related objects
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evm: Option<SolcStandardJsonOutputContractEVM>,
+    /// The contract optimized IR code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ir_optimized: Option<String>,
+    /// The contract PolkaVM bytecode hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    /// The contract factory dependencies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory_dependencies: Option<BTreeMap<String, String>>,
+    /// The contract missing libraries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_libraries: Option<HashSet<String>>,
 }
 
 impl Default for ResolcContractArtifact {
     fn default() -> Self {
         Self {
-            artifact: revive_solidity::SolcStandardJsonOutputContract {
-                abi: None,
-                metadata: None,
-                devdoc: None,
-                userdoc: None,
-                storage_layout: None,
-                evm: None,
-                ir_optimized: None,
-                hash: None,
-                factory_dependencies: None,
-                missing_libraries: None,
-            },
+            abi: None,
+            metadata: None,
+            devdoc: None,
+            userdoc: None,
+            storage_layout: None,
+            evm: None,
+            ir_optimized: None,
+            hash: None,
+            factory_dependencies: None,
+            missing_libraries: None,
         }
     }
 }
@@ -110,33 +138,29 @@ impl ResolcArtifactOutput {
         _source_file: Option<&SourceFile>,
     ) -> ResolcContractArtifact {
         ResolcContractArtifact {
-            artifact: revive_solidity::SolcStandardJsonOutputContract {
-                abi: json_abi_to_revive_abi(contract.abi).unwrap_or_default(),
-                metadata: serde_json::from_str(
-                    &serde_json::to_string(&contract.metadata).unwrap_or_default(),
-                )
+            abi: json_abi_to_revive_abi(contract.abi).unwrap_or_default(),
+            metadata: serde_json::from_str(
+                &serde_json::to_string(&contract.metadata).unwrap_or_default(),
+            )
+            .unwrap_or_default(),
+            devdoc: serde_json::from_str(
+                &serde_json::to_string(&contract.devdoc).unwrap_or_default(),
+            )
+            .unwrap_or_default(),
+            userdoc: serde_json::from_str(
+                &serde_json::to_string(&contract.userdoc).unwrap_or_default(),
+            )
+            .unwrap_or_default(),
+            storage_layout: serde_json::from_str(
+                &serde_json::to_string(&contract.storage_layout).unwrap_or_default(),
+            )
+            .unwrap_or_default(),
+            evm: serde_json::from_str(&serde_json::to_string(&contract.evm).unwrap_or_default())
                 .unwrap_or_default(),
-                devdoc: serde_json::from_str(
-                    &serde_json::to_string(&contract.devdoc).unwrap_or_default(),
-                )
-                .unwrap_or_default(),
-                userdoc: serde_json::from_str(
-                    &serde_json::to_string(&contract.userdoc).unwrap_or_default(),
-                )
-                .unwrap_or_default(),
-                storage_layout: serde_json::from_str(
-                    &serde_json::to_string(&contract.storage_layout).unwrap_or_default(),
-                )
-                .unwrap_or_default(),
-                evm: serde_json::from_str(
-                    &serde_json::to_string(&contract.evm).unwrap_or_default(),
-                )
-                .unwrap_or_default(),
-                ir_optimized: contract.ir_optimized,
-                hash: None,
-                factory_dependencies: None,
-                missing_libraries: None,
-            },
+            ir_optimized: contract.ir_optimized,
+            hash: None,
+            factory_dependencies: None,
+            missing_libraries: None,
         }
     }
     /// Convert the compiler output into a set of artifacts
@@ -292,24 +316,25 @@ impl ResolcArtifactOutput {
 fn json_abi_to_revive_abi(
     abi: Option<JsonAbi>,
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
-    Ok(abi.map(serde_json::to_value).transpose()?)
+    Ok(abi.map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| format!("Failed to serialize JsonAbi: {}", e))?)
 }
 pub fn revive_abi_to_json_abi(
     abi: Option<serde_json::Value>,
 ) -> Result<Option<JsonAbi>, Box<dyn std::error::Error>> {
-    match abi {
-        Some(value) => {
-            let json_str = serde_json::to_string(&value)?;
-            Ok(Some(JsonAbi::from_json_str(&json_str)?))
-        }
-        None => Ok(None),
-    }
+    abi.map_or(Ok(None), |value| {
+        let json_str =
+            serde_json::to_string(&value).map_err(|e| format!("Failed to serialize ABI: {}", e))?;
+        JsonAbi::from_json_str(&json_str)
+            .map(Some)
+            .map_err(|e| format!("Failed to parse ABI: {}", e).into())
+    })
 }
 fn create_byte_code(
     parent_contract: &ResolcContractArtifact,
 ) -> (JsonAbi, CompactBytecode, CompactDeployedBytecode) {
     let standard_abi = parent_contract
-        .artifact
         .abi
         .as_ref()
         .and_then(|value| serde_json::from_value(value.clone()).ok())
@@ -322,9 +347,9 @@ fn create_byte_code(
             errors: BTreeMap::default(),
         });
 
-    let binding = parent_contract.artifact.evm.clone().unwrap().bytecode.unwrap();
+    let binding = parent_contract.evm.clone().unwrap().bytecode.unwrap();
     let raw_bytecode = binding.object.as_str();
-    let binding = parent_contract.artifact.evm.clone().unwrap().deployed_bytecode.unwrap();
+    let binding = parent_contract.evm.clone().unwrap().deployed_bytecode.unwrap();
     let raw_deployed_bytecode = binding.object.as_str();
 
     let bytecode = BytecodeObject::Bytecode(Bytes::from(hex::decode(raw_bytecode).unwrap()));
