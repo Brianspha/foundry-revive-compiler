@@ -21,7 +21,7 @@ use crate::{
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct ResolcArtifactOutput();
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResolcContractArtifact {
     artifact: revive_solidity::SolcStandardJsonOutputContract,
 }
