@@ -294,7 +294,7 @@ fn json_abi_to_revive_abi(
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     Ok(abi.map(serde_json::to_value).transpose()?)
 }
-pub fn revive_abi_to_json_abi_(
+pub fn revive_abi_to_json_abi(
     abi: Option<serde_json::Value>,
 ) -> Result<Option<JsonAbi>, Box<dyn std::error::Error>> {
     match abi {
