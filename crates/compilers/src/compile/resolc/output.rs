@@ -1,6 +1,5 @@
 //! The output of a compiled project
 use crate::{
-    compilers::resolc::Resolc,
     contracts::{VersionedContract, VersionedContracts},
     info::ContractInfoRef,
     sources::{VersionedSourceFile, VersionedSourceFiles},
@@ -21,8 +20,8 @@ use yansi::Paint;
 
 use crate::{
     buildinfo::{BuildContext, RawBuildInfo},
-    compilers::{multi::MultiCompiler, CompilationError, Compiler, CompilerOutput},
-    Artifact, ArtifactId, ArtifactOutput, Artifacts, ConfigurableArtifacts,
+    compilers::{CompilationError, CompilerOutput},
+    Artifact, ArtifactId, ArtifactOutput, Artifacts,
 };
 
 use super::resolc_artifact_output::{ResolcArtifactOutput, ResolcContractArtifact};
@@ -64,7 +63,7 @@ impl<L> IntoIterator for Builds<L> {
 /// Contains a mixture of already compiled/cached artifacts and the input set of sources that still
 /// need to be compiled.
 #[derive(Clone, Debug)]
-pub struct ProjectCompileOutput {
+pub struct ResolcProjectCompileOutput {
     /// contains the aggregated `CompilerOutput`
     pub compiler_output: AggregatedCompilerOutput,
     /// all artifact files from `output` that were freshly compiled and written
@@ -81,7 +80,7 @@ pub struct ProjectCompileOutput {
     pub builds: Builds<SolcLanguage>,
 }
 
-impl ProjectCompileOutput {
+impl ResolcProjectCompileOutput {
     /// Converts all `\\` separators in _all_ paths to `/`
     pub fn slash_paths(&mut self) {
         self.compiler_output.slash_paths();
@@ -471,7 +470,7 @@ impl ProjectCompileOutput {
     }
 }
 
-impl ProjectCompileOutput {
+impl ResolcProjectCompileOutput {
     /// Returns whether any errors were emitted by the compiler.
     pub fn has_compiler_errors(&self) -> bool {
         self.compiler_output.has_error(
@@ -500,7 +499,7 @@ impl ProjectCompileOutput {
     }
 }
 
-impl fmt::Display for ProjectCompileOutput {
+impl fmt::Display for ResolcProjectCompileOutput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.compiler_output.is_unchanged() {
             f.write_str("Nothing to compile")
