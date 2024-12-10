@@ -23,7 +23,7 @@ pub struct ResolcArtifactOutput();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResolcContractArtifact {
-    artifact: revive_solidity::SolcStandardJsonOutputContract,
+    pub artifact: revive_solidity::SolcStandardJsonOutputContract,
 }
 
 impl Default for ResolcContractArtifact {
