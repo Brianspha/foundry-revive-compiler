@@ -8,7 +8,8 @@ use alloy_json_abi::JsonAbi;
 use alloy_primitives::{hex, Bytes};
 use foundry_compilers_artifacts::{
     BytecodeObject, CompactBytecode, CompactContract, CompactContractBytecode,
-    CompactContractBytecodeCow, CompactDeployedBytecode, Contract, SolcLanguage, SourceFile,
+    CompactContractBytecodeCow, CompactDeployedBytecode, Contract, DevDoc, SolcLanguage,
+    SourceFile, StorageLayout, UserDoc,
 };
 use path_slash::PathBufExt;
 use revive_solidity::SolcStandardJsonOutputContractEVM;
@@ -26,19 +27,19 @@ pub struct ResolcArtifactOutput();
 pub struct ResolcContractArtifact {
     /// The contract ABI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub abi: Option<serde_json::Value>,
+    pub abi: Option<JsonAbi>,
     /// The contract metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     /// The contract developer documentation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub devdoc: Option<serde_json::Value>,
+    pub devdoc: Option<DevDoc>,
     /// The contract user documentation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub userdoc: Option<serde_json::Value>,
+    pub userdoc: Option<UserDoc>,
     /// The contract storage layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_layout: Option<serde_json::Value>,
+    pub storage_layout: Option<StorageLayout>,
     /// Contract's bytecode and related objects
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evm: Option<SolcStandardJsonOutputContractEVM>,
@@ -138,19 +139,13 @@ impl ResolcArtifactOutput {
         _source_file: Option<&SourceFile>,
     ) -> ResolcContractArtifact {
         ResolcContractArtifact {
-            abi: json_abi_to_revive_abi(contract.abi).unwrap_or_default(),
+            abi: contract.abi,
             metadata: serde_json::from_str(
                 &serde_json::to_string(&contract.metadata).unwrap_or_default(),
             )
             .unwrap_or_default(),
-            devdoc: serde_json::from_str(
-                &serde_json::to_string(&contract.devdoc).unwrap_or_default(),
-            )
-            .unwrap_or_default(),
-            userdoc: serde_json::from_str(
-                &serde_json::to_string(&contract.userdoc).unwrap_or_default(),
-            )
-            .unwrap_or_default(),
+            devdoc: Some(contract.devdoc),
+            userdoc: Some(contract.userdoc),
             storage_layout: serde_json::from_str(
                 &serde_json::to_string(&contract.storage_layout).unwrap_or_default(),
             )
@@ -313,13 +308,6 @@ impl ResolcArtifactOutput {
     }
 }
 
-fn json_abi_to_revive_abi(
-    abi: Option<JsonAbi>,
-) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
-    Ok(abi.map(serde_json::to_value)
-        .transpose()
-        .map_err(|e| format!("Failed to serialize JsonAbi: {}", e))?)
-}
 pub fn revive_abi_to_json_abi(
     abi: Option<serde_json::Value>,
 ) -> Result<Option<JsonAbi>, Box<dyn std::error::Error>> {
@@ -334,18 +322,7 @@ pub fn revive_abi_to_json_abi(
 fn create_byte_code(
     parent_contract: &ResolcContractArtifact,
 ) -> (JsonAbi, CompactBytecode, CompactDeployedBytecode) {
-    let standard_abi = parent_contract
-        .abi
-        .as_ref()
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_else(|| JsonAbi {
-            constructor: None,
-            fallback: None,
-            receive: None,
-            functions: BTreeMap::default(),
-            events: BTreeMap::default(),
-            errors: BTreeMap::default(),
-        });
+    let standard_abi = parent_contract.abi.clone().unwrap_or_default();
 
     let binding = parent_contract.evm.clone().unwrap().bytecode.unwrap();
     let raw_bytecode = binding.object.as_str();
