@@ -105,7 +105,7 @@ use crate::{
     buildinfo::RawBuildInfo,
     cache::ArtifactsCache,
     compile::resolc::{
-        output::{AggregatedCompilerOutput, ProjectCompileOutput},
+        output::{AggregatedCompilerOutput, ResolcProjectCompileOutput},
         resolc_artifact_output::{ContractArtifact, ResolcArtifactOutput},
     },
     compilers::{
@@ -188,7 +188,7 @@ impl<'a> ProjectCompiler<'a> {
     /// let output = project.compile()?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn compile(self) -> Result<ProjectCompileOutput> {
+    pub fn compile(self) -> Result<ResolcProjectCompileOutput> {
         let slash_paths = self.project.slash_paths;
 
         // drive the compiler statemachine to completion
@@ -327,7 +327,7 @@ impl<'a> ArtifactsState<'a> {
     /// Writes the cache file
     ///
     /// this concludes the [`Project::compile()`] statemachine
-    fn write_cache(self) -> Result<ProjectCompileOutput> {
+    fn write_cache(self) -> Result<ResolcProjectCompileOutput> {
         let ArtifactsState { output, cache, compiled_artifacts } = self;
         let project = cache.project();
         let ignored_error_codes = project.ignored_error_codes.clone();
@@ -353,7 +353,7 @@ impl<'a> ArtifactsState<'a> {
                 .collect(),
         );
 
-        Ok(ProjectCompileOutput {
+        Ok(ResolcProjectCompileOutput {
             compiler_output: output,
             compiled_artifacts,
             cached_artifacts,
@@ -485,7 +485,8 @@ impl<'a> CompilerSources<'a> {
                 cache.compiler_seen(file);
             }
 
-            let build_info: RawBuildInfo<SolcLanguage> = raw_build_info_new(&input, &output, project.build_info)?;
+            let build_info: RawBuildInfo<SolcLanguage> =
+                raw_build_info_new(&input, &output, project.build_info)?;
 
             output.retain_files(
                 actually_dirty

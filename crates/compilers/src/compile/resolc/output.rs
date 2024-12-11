@@ -11,7 +11,9 @@ use crate::{
     ArtifactOutput,
 };
 use foundry_compilers_artifacts::{
-    resolc::{contract::ResolcContract, ResolcCompilerOutput}, solc::CompactContractRef, Error, SolcLanguage,
+    resolc::{contract::ResolcContract, ResolcCompilerOutput},
+    solc::CompactContractRef,
+    Error, SolcLanguage,
 };
 use foundry_compilers_core::error::{SolcError, SolcIoError};
 use semver::Version;
@@ -25,7 +27,7 @@ use yansi::Paint;
 use super::resolc_artifact_output::{ContractArtifact, ResolcArtifactOutput};
 
 #[derive(Clone, Debug)]
-pub struct ProjectCompileOutput {
+pub struct ResolcProjectCompileOutput {
     /// contains the aggregated `CompilerOutput`
     pub compiler_output: AggregatedCompilerOutput,
     /// all artifact files from `output` that were freshly compiled and written
@@ -42,7 +44,7 @@ pub struct ProjectCompileOutput {
     pub builds: Builds<SolcLanguage>,
 }
 
-impl ProjectCompileOutput {
+impl ResolcProjectCompileOutput {
     /// Converts all `\\` separators in _all_ paths to `/`
     pub fn slash_paths(&mut self) {
         self.compiler_output.slash_paths();
@@ -185,7 +187,7 @@ impl ProjectCompileOutput {
     }
 }
 
-impl fmt::Display for ProjectCompileOutput {
+impl fmt::Display for ResolcProjectCompileOutput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.compiler_output.is_unchanged() {
             f.write_str("Nothing to compile")

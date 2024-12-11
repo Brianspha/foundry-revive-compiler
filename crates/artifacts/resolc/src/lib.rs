@@ -1,10 +1,12 @@
-use std::{collections::{BTreeMap, HashSet}, path::{Path, PathBuf}};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 pub mod contract;
 use contract::ResolcContract;
 use foundry_compilers_artifacts_solc::{
-
-    Bytecode, DeployedBytecode, Error, FileToContractsMap, SourceFile, SourceFiles
+    Bytecode, DeployedBytecode, Error, FileToContractsMap, SourceFile, SourceFiles,
 };
 use serde::{Deserialize, Serialize};
 

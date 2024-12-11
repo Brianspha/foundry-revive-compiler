@@ -5,8 +5,8 @@ use std::{
 
 use alloy_json_abi::JsonAbi;
 use foundry_compilers_artifacts_solc::{
-    CompactBytecode, CompactContractBytecode, CompactContractBytecodeCow,
-    CompactContractRef, CompactDeployedBytecode, DevDoc, StorageLayout, UserDoc,
+    CompactBytecode, CompactContractBytecode, CompactContractBytecodeCow, CompactContractRef,
+    CompactDeployedBytecode, DevDoc, StorageLayout, UserDoc,
 };
 use serde::{Deserialize, Serialize};
 

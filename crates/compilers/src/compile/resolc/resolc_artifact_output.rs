@@ -18,10 +18,8 @@ use revive_solidity::SolcStandardJsonOutputContractEVM;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    resolc::contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile,
-    ArtifactOutput, Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig,
-    error::Result,
-
+    error::Result, resolc::contracts::VersionedContracts, sources::VersionedSourceFiles,
+    ArtifactFile, ArtifactOutput, Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig,
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -173,16 +171,16 @@ impl ResolcArtifactOutput {
         sources: &VersionedSourceFiles,
         layout: &ProjectPathsConfig<SolcLanguage>,
         ctx: OutputContext<'_>,
-    ) -> Result<Artifacts<ContractArtifact>> {  
+    ) -> Result<Artifacts<ContractArtifact>> {
         let mut artifacts = self.resolc_output_to_artifacts(contracts, sources, ctx, layout);
         fs::create_dir_all(&layout.artifacts).map_err(|err| {
             error!(dir=?layout.artifacts, "Failed to create artifacts folder");
             SolcIoError::new(err, &layout.artifacts)
         })?;
-    
+
         artifacts.join_all(&layout.artifacts);
         artifacts.write_all()?;
-    
+
         Ok(artifacts)
     }
     /// Convert the compiler output into a set of artifacts

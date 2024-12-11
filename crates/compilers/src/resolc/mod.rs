@@ -1,13 +1,17 @@
-use std::collections::{BTreeMap, HashSet};
+use alloy_primitives::hex;
 use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, SolcLanguage};
 use md5::Digest;
-use alloy_primitives::hex;
+use std::collections::{BTreeMap, HashSet};
 
-use crate::{ buildinfo::{BuildContext, RawBuildInfo, ETHERS_FORMAT_VERSION}, compilers::resolc::ResolcVersionedInput, error::Result, CompilerInput};
+use crate::{
+    buildinfo::{BuildContext, RawBuildInfo, ETHERS_FORMAT_VERSION},
+    compilers::resolc::ResolcVersionedInput,
+    error::Result,
+    CompilerInput,
+};
 
 pub mod contracts;
 pub mod project;
-
 
 pub fn raw_build_info_new(
     input: &ResolcVersionedInput,
