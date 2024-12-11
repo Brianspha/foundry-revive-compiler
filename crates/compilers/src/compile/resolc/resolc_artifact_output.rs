@@ -1,30 +1,34 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
+    fs,
     path::Path,
 };
 
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::{hex, Bytes};
 use foundry_compilers_artifacts::{
-    BytecodeObject, CompactBytecode, CompactContract, CompactContractBytecode,
-    CompactContractBytecodeCow, CompactDeployedBytecode, Contract, DevDoc, SolcLanguage,
-    SourceFile, StorageLayout, UserDoc,
+    resolc::contract::ResolcContract, BytecodeObject, CompactBytecode, CompactContract,
+    CompactContractBytecode, CompactContractBytecodeCow, CompactDeployedBytecode, DevDoc,
+    SolcLanguage, SourceFile, StorageLayout, UserDoc,
 };
+use foundry_compilers_core::error::SolcIoError;
 use path_slash::PathBufExt;
 use revive_solidity::SolcStandardJsonOutputContractEVM;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile, ArtifactOutput,
-    Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig,
+    resolc::contracts::VersionedContracts, sources::VersionedSourceFiles, ArtifactFile,
+    ArtifactOutput, Artifacts, ArtifactsMap, OutputContext, ProjectPathsConfig,
+    error::Result,
+
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct ResolcArtifactOutput();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResolcContractArtifact {
+pub struct ContractArtifact {
     /// The contract ABI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abi: Option<JsonAbi>,
@@ -57,7 +61,7 @@ pub struct ResolcContractArtifact {
     pub missing_libraries: Option<HashSet<String>>,
 }
 
-impl Default for ResolcContractArtifact {
+impl Default for ContractArtifact {
     fn default() -> Self {
         Self {
             abi: None,
@@ -74,8 +78,8 @@ impl Default for ResolcContractArtifact {
     }
 }
 
-impl<'a> From<&'a ResolcContractArtifact> for CompactContractBytecodeCow<'a> {
-    fn from(value: &'a ResolcContractArtifact) -> Self {
+impl<'a> From<&'a ContractArtifact> for CompactContractBytecodeCow<'a> {
+    fn from(value: &'a ContractArtifact) -> Self {
         let (standard_abi, compact_bytecode, compact_deployed_bytecode) = create_byte_code(value);
 
         Self {
@@ -86,8 +90,8 @@ impl<'a> From<&'a ResolcContractArtifact> for CompactContractBytecodeCow<'a> {
     }
 }
 
-impl From<ResolcContractArtifact> for CompactContractBytecode {
-    fn from(value: ResolcContractArtifact) -> Self {
+impl From<ContractArtifact> for CompactContractBytecode {
+    fn from(value: ContractArtifact) -> Self {
         let (standard_abi, compact_bytecode, compact_deployed_bytecode) = create_byte_code(&value);
         Self {
             abi: Some(standard_abi),
@@ -97,8 +101,8 @@ impl From<ResolcContractArtifact> for CompactContractBytecode {
     }
 }
 
-impl From<ResolcContractArtifact> for CompactContract {
-    fn from(value: ResolcContractArtifact) -> Self {
+impl From<ContractArtifact> for CompactContract {
+    fn from(value: ContractArtifact) -> Self {
         let (standard_abi, compact_bytecode, _) = create_byte_code(&value);
         Self {
             bin: Some(compact_bytecode.object.clone()),
@@ -109,7 +113,7 @@ impl From<ResolcContractArtifact> for CompactContract {
 }
 
 impl ArtifactOutput for ResolcArtifactOutput {
-    type Artifact = ResolcContractArtifact;
+    type Artifact = ContractArtifact;
 
     fn contract_to_artifact(
         &self,
@@ -135,17 +139,17 @@ impl ResolcArtifactOutput {
         &self,
         _file: &Path,
         _name: &str,
-        contract: Contract,
+        contract: ResolcContract,
         _source_file: Option<&SourceFile>,
-    ) -> ResolcContractArtifact {
-        ResolcContractArtifact {
+    ) -> ContractArtifact {
+        ContractArtifact {
             abi: contract.abi,
             metadata: serde_json::from_str(
                 &serde_json::to_string(&contract.metadata).unwrap_or_default(),
             )
             .unwrap_or_default(),
-            devdoc: Some(contract.devdoc),
-            userdoc: Some(contract.userdoc),
+            devdoc: contract.devdoc,
+            userdoc: contract.userdoc,
             storage_layout: serde_json::from_str(
                 &serde_json::to_string(&contract.storage_layout).unwrap_or_default(),
             )
@@ -158,6 +162,29 @@ impl ResolcArtifactOutput {
             missing_libraries: None,
         }
     }
+
+    /// Handle the aggregated set of compiled contracts from the solc [`crate::CompilerOutput`].
+    ///
+    /// This will be invoked with all aggregated contracts from (multiple) solc `CompilerOutput`.
+    /// See [`crate::AggregatedCompilerOutput`]
+    pub fn resolc_on_output(
+        &self,
+        contracts: &VersionedContracts,
+        sources: &VersionedSourceFiles,
+        layout: &ProjectPathsConfig<SolcLanguage>,
+        ctx: OutputContext<'_>,
+    ) -> Result<Artifacts<ContractArtifact>> {  
+        let mut artifacts = self.resolc_output_to_artifacts(contracts, sources, ctx, layout);
+        fs::create_dir_all(&layout.artifacts).map_err(|err| {
+            error!(dir=?layout.artifacts, "Failed to create artifacts folder");
+            SolcIoError::new(err, &layout.artifacts)
+        })?;
+    
+        artifacts.join_all(&layout.artifacts);
+        artifacts.write_all()?;
+    
+        Ok(artifacts)
+    }
     /// Convert the compiler output into a set of artifacts
     ///
     /// **Note:** This does only convert, but _NOT_ write the artifacts to disk, See
@@ -168,7 +195,7 @@ impl ResolcArtifactOutput {
         sources: &VersionedSourceFiles,
         ctx: OutputContext<'_>,
         layout: &ProjectPathsConfig<SolcLanguage>,
-    ) -> Artifacts<ResolcContractArtifact> {
+    ) -> Artifacts<ContractArtifact> {
         let mut artifacts = ArtifactsMap::new();
 
         // this tracks all the `SourceFile`s that we successfully mapped to a contract
@@ -320,7 +347,7 @@ pub fn revive_abi_to_json_abi(
     })
 }
 fn create_byte_code(
-    parent_contract: &ResolcContractArtifact,
+    parent_contract: &ContractArtifact,
 ) -> (JsonAbi, CompactBytecode, CompactDeployedBytecode) {
     let standard_abi = parent_contract.abi.clone().unwrap_or_default();
 

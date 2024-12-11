@@ -1,4 +1,4 @@
-use foundry_compilers_artifacts::{CompilerOutput, Error, SolcLanguage};
+use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
 use foundry_compilers_core::error::{Result, SolcError};
 use semver::Version;
 use serde::Serialize;
@@ -51,13 +51,13 @@ impl Resolc {
         Ok(Self { resolc: path, extra_args: Vec::new() })
     }
 
-    pub fn compile(&self, input: &ResolcInput) -> Result<CompilerOutput> {
+    pub fn compile(&self, input: &ResolcInput) -> Result<ResolcCompilerOutput> {
         match self.compile_output::<ResolcInput>(input) {
             Ok(results) => {
                 let output = std::str::from_utf8(&results).map_err(|_| SolcError::InvalidUtf8)?;
                 serde_json::from_str(output).map_err(|e| SolcError::msg(e.to_string()))
             }
-            Err(_) => Ok(CompilerOutput::default()),
+            Err(_) => Ok(ResolcCompilerOutput::default()),
         }
     }
 

@@ -15,7 +15,7 @@ exclude.workspace = true
 workspace = true
 
 [dependencies]
-revive-solidity .workspace = true
+revive-solidity.workspace = true
 revive-llvm-context.workspace = true
 foundry-compilers-artifacts.workspace = true
 foundry-compilers-core.workspace = true

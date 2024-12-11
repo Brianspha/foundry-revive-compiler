@@ -35,6 +35,7 @@ foundry-compilers = { path = "crates/compilers", version = "0.12.3" }
 foundry-compilers-artifacts = { path = "crates/artifacts/artifacts", version = "0.12.3" }
 foundry-compilers-artifacts-solc = { path = "crates/artifacts/solc", version = "0.12.3" }
 foundry-compilers-artifacts-vyper = { path = "crates/artifacts/vyper", version = "0.12.3" }
+foundry-compilers-artifacts-resolc = { path = "crates/artifacts/resolc", version = "0.12.3" }
 foundry-compilers-core = { path = "crates/core", version = "0.12.3" }
 revive-solidity = { git = "https://github.com/paritytech/revive", tag = "v0.1.0-dev-4", package = "revive-solidity" }
 revive-llvm-context = { git = "https://github.com/paritytech/revive", tag = "v0.1.0-dev-4", package = "revive-llvm-context" }

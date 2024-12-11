@@ -104,29 +104,34 @@ use crate::{
     artifact_output::Artifacts,
     buildinfo::RawBuildInfo,
     cache::ArtifactsCache,
-    compile::resolc::resolc_artifact_output::{ResolcArtifactOutput, ResolcContractArtifact},
+    compile::resolc::{
+        output::{AggregatedCompilerOutput, ProjectCompileOutput},
+        resolc_artifact_output::{ContractArtifact, ResolcArtifactOutput},
+    },
     compilers::{
         resolc::{Resolc, ResolcSettings, ResolcVersionedInput},
-        CompilerInput, CompilerOutput,
+        CompilerInput,
     },
     filter::SparseOutputFilter,
-    output::{AggregatedCompilerOutput, Builds},
+    output::Builds,
     report,
     resolver::{parse::SolData, GraphEdges},
-    ArtifactOutput, CompilerSettings, Graph, Project, ProjectCompileOutput, Sources,
+    ArtifactOutput, CompilerSettings, Graph, Project, Sources,
 };
-use foundry_compilers_artifacts::SolcLanguage;
+use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, SolcLanguage};
 use foundry_compilers_core::error::Result;
 use rayon::prelude::*;
 use semver::Version;
 use std::{collections::HashMap, path::PathBuf, time::Instant};
+
+use super::raw_build_info_new;
 
 /// A set of different Solc installations with their version and the sources to be compiled
 pub(crate) type VersionedSources<'a, L> =
     HashMap<L, Vec<(Version, Sources, (&'a str, &'a ResolcSettings))>>;
 
 #[derive(Debug)]
-pub struct ResolcProjectCompiler<'a> {
+pub struct ProjectCompiler<'a> {
     /// Contains the relationship of the source files and their imports
     edges: GraphEdges<SolData>,
     project: &'a Project<Resolc, ResolcArtifactOutput>,
@@ -134,8 +139,8 @@ pub struct ResolcProjectCompiler<'a> {
     sources: CompilerSources<'a>,
 }
 
-impl<'a> ResolcProjectCompiler<'a> {
-    /// Create a new `ResolcProjectCompiler` to bootstrap the compilation process of the project's
+impl<'a> ProjectCompiler<'a> {
+    /// Create a new `ProjectCompiler` to bootstrap the compilation process of the project's
     /// sources.
     pub fn new(project: &'a Project<Resolc, ResolcArtifactOutput>) -> Result<Self> {
         Self::with_sources(project, project.paths.read_input_files()?)
@@ -183,7 +188,7 @@ impl<'a> ResolcProjectCompiler<'a> {
     /// let output = project.compile()?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn compile(self) -> Result<ProjectCompileOutput<Resolc, ResolcArtifactOutput>> {
+    pub fn compile(self) -> Result<ProjectCompileOutput> {
         let slash_paths = self.project.slash_paths;
 
         // drive the compiler statemachine to completion
@@ -216,7 +221,7 @@ impl<'a> ResolcProjectCompiler<'a> {
     }
 }
 
-/// A series of states that comprise the [`ResolcProjectCompiler::compile()`] state machine
+/// A series of states that comprise the [`ProjectCompiler::compile()`] state machine
 ///
 /// The main reason is to debug all states individually
 #[derive(Debug)]
@@ -250,7 +255,7 @@ impl<'a> PreprocessedState<'a> {
 /// Represents the state after `solc` was successfully invoked
 #[derive(Debug)]
 struct CompiledState<'a> {
-    output: AggregatedCompilerOutput<Resolc>,
+    output: AggregatedCompilerOutput,
     cache: ArtifactsCache<'a, ResolcArtifactOutput, Resolc>,
 }
 
@@ -263,7 +268,7 @@ impl<'a> CompiledState<'a> {
     fn write_artifacts(self) -> Result<ArtifactsState<'a>> {
         let CompiledState { output, cache } = self;
 
-        let project = cache.project();
+        let project: &Project<Resolc, ResolcArtifactOutput> = cache.project();
         let ctx = cache.output_ctx();
         // write all artifacts via the handler but only if the build succeeded and project wasn't
         // configured with `no_artifacts == true`
@@ -280,7 +285,7 @@ impl<'a> CompiledState<'a> {
             &project.compiler_severity_filter,
         ) {
             trace!("skip writing cache file due to solc errors: {:?}", output.errors);
-            project.artifacts_handler().output_to_artifacts(
+            project.artifacts_handler().resolc_output_to_artifacts(
                 &output.contracts,
                 &output.sources,
                 ctx,
@@ -293,7 +298,7 @@ impl<'a> CompiledState<'a> {
                 output.sources.len()
             );
             // this emits the artifacts via the project's artifacts handler
-            let artifacts = project.artifacts_handler().on_output(
+            let artifacts = project.artifacts_handler().resolc_on_output(
                 &output.contracts,
                 &output.sources,
                 &project.paths,
@@ -313,16 +318,16 @@ impl<'a> CompiledState<'a> {
 /// Represents the state after all artifacts were written to disk
 #[derive(Debug)]
 struct ArtifactsState<'a> {
-    output: AggregatedCompilerOutput<Resolc>,
+    output: AggregatedCompilerOutput,
     cache: ArtifactsCache<'a, ResolcArtifactOutput, Resolc>,
-    compiled_artifacts: Artifacts<ResolcContractArtifact>,
+    compiled_artifacts: Artifacts<ContractArtifact>,
 }
 
 impl<'a> ArtifactsState<'a> {
     /// Writes the cache file
     ///
     /// this concludes the [`Project::compile()`] statemachine
-    fn write_cache(self) -> Result<ProjectCompileOutput<Resolc, ResolcArtifactOutput>> {
+    fn write_cache(self) -> Result<ProjectCompileOutput> {
         let ArtifactsState { output, cache, compiled_artifacts } = self;
         let project = cache.project();
         let ignored_error_codes = project.ignored_error_codes.clone();
@@ -338,7 +343,7 @@ impl<'a> ArtifactsState<'a> {
 
         project.artifacts_handler().handle_cached_artifacts(&cached_artifacts)?;
 
-        let builds = Builds(
+        let builds: Builds<SolcLanguage> = Builds(
             output
                 .build_infos
                 .iter()
@@ -412,7 +417,7 @@ impl<'a> CompilerSources<'a> {
     fn compile(
         self,
         cache: &mut ArtifactsCache<'_, ResolcArtifactOutput, Resolc>,
-    ) -> Result<AggregatedCompilerOutput<Resolc>> {
+    ) -> Result<AggregatedCompilerOutput> {
         let project = cache.project();
         let graph = cache.graph();
 
@@ -463,13 +468,14 @@ impl<'a> CompilerSources<'a> {
             }
         }
 
-        let results = if let Some(num_jobs) = jobs_cnt {
-            compile_parallel(&project.compiler, jobs, num_jobs)
-        } else {
-            compile_sequential(&project.compiler, jobs)
-        }?;
+        let results: Vec<(ResolcVersionedInput, ResolcCompilerOutput, &str, Vec<PathBuf>)> =
+            if let Some(num_jobs) = jobs_cnt {
+                compile_parallel(&project.compiler, jobs, num_jobs)
+            } else {
+                compile_sequential(&project.compiler, jobs)
+            }?;
 
-        let mut aggregated = AggregatedCompilerOutput::default();
+        let mut aggregated: AggregatedCompilerOutput = AggregatedCompilerOutput::default();
 
         for (input, mut output, profile, actually_dirty) in results {
             let version = input.version();
@@ -479,7 +485,7 @@ impl<'a> CompilerSources<'a> {
                 cache.compiler_seen(file);
             }
 
-            let build_info = RawBuildInfo::new(&input, &output, project.build_info)?;
+            let build_info: RawBuildInfo<SolcLanguage> = raw_build_info_new(&input, &output, project.build_info)?;
 
             output.retain_files(
                 actually_dirty
@@ -495,14 +501,8 @@ impl<'a> CompilerSources<'a> {
     }
 }
 
-type CompilationResult<'a> = Result<
-    Vec<(
-        ResolcVersionedInput,
-        CompilerOutput<foundry_compilers_artifacts::Error>,
-        &'a str,
-        Vec<PathBuf>,
-    )>,
->;
+type CompilationResult<'a> =
+    Result<Vec<(ResolcVersionedInput, ResolcCompilerOutput, &'a str, Vec<PathBuf>)>>;
 
 /// Compiles the input set sequentially and returns a [Vec] of outputs.
 fn compile_sequential<'a>(
@@ -519,12 +519,6 @@ fn compile_sequential<'a>(
             );
             let output = compiler.compile(&input.input)?;
             report::compiler_success(&input.compiler_name(), input.version(), &start.elapsed());
-
-            let output = CompilerOutput {
-                errors: output.errors,
-                contracts: output.contracts,
-                sources: output.sources,
-            };
 
             Ok((input, output, profile, actually_dirty))
         })
@@ -564,12 +558,7 @@ fn compile_parallel<'a>(
                         input.version(),
                         &start.elapsed(),
                     );
-                    let result = CompilerOutput {
-                        errors: output.errors,
-                        contracts: output.contracts,
-                        sources: output.sources,
-                    };
-                    (input, result, profile, actually_dirty)
+                    (input, output, profile, actually_dirty)
                 });
 
                 result
