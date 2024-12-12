@@ -1,19 +1,19 @@
 use crate::{
     error::{Result, SolcError},
     resolver::parse::SolData,
+    solc::SolcCompiler,
     Compiler, CompilerVersion,
 };
-use foundry_compilers_artifacts::{
-    resolc::ResolcCompilerOutput, Error, SolcLanguage,
-};
+use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
 use semver::Version;
-use serde::Serialize;
+use serde::{Serialize,Deserialize};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     str::FromStr,
 };
+pub const REVIVE_SOLC_RELEASE: Version = Version::new(1, 0, 1);
 
 #[cfg(feature = "async")]
 use std::{
@@ -58,6 +58,14 @@ impl ResolcOS {
             Self::MacARM => "resolc-macosx-arm64-",
         }
     }
+    fn get_solc_prefix(&self) -> &str {
+        match self {
+            Self::LinuxAMD64 => "solc-linux-amd64-",
+            Self::LinuxARM64 => "solc-linux-arm64-",
+            Self::MacAMD => "solc-macosx-amd64-",
+            Self::MacARM => "solc-macosx-arm64-",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -67,8 +75,15 @@ pub struct Resolc {
     pub base_path: Option<PathBuf>,
     pub allow_paths: BTreeSet<PathBuf>,
     pub include_paths: BTreeSet<PathBuf>,
+    pub solc: Option<PathBuf>,
 }
-
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SolcVersionInfo {
+    /// The solc compiler version (e.g: 0.8.20)
+    pub version: Version,
+    /// The full revive solc compiler version (e.g: 0.8.20-1.0.1)
+    pub revive_version: Option<Version>,
+}
 impl Compiler for Resolc {
     type Input = ResolcVersionedInput;
     type CompilationError = Error;
@@ -76,14 +91,28 @@ impl Compiler for Resolc {
     type Settings = ResolcSettings;
     type Language = SolcLanguage;
 
+    /// Instead of using specific sols version we are going to autodetect
+    /// Installed versions
     fn available_versions(&self, _language: &Self::Language) -> Vec<CompilerVersion> {
-        let compiler = revive_solidity::SolcCompiler::new(
-            revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned(),
-        )
-        .unwrap();
-        let mut versions = Vec::new();
-        versions.push(CompilerVersion::Remote(compiler.version.unwrap().default));
-        versions
+        let mut all_versions = Resolc::solc_installed_versions()
+            .into_iter()
+            .map(CompilerVersion::Installed)
+            .collect::<Vec<_>>();
+        let mut uniques = all_versions
+            .iter()
+            .map(|v| {
+                let v = v.as_ref();
+                (v.major, v.minor, v.patch)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        all_versions.extend(
+            Resolc::solc_available_versions()
+                .into_iter()
+                .filter(|v| uniques.insert((v.major, v.minor, v.patch)))
+                .map(CompilerVersion::Remote),
+        );
+        all_versions.sort_unstable();
+        all_versions
     }
 
     fn compile(
@@ -95,16 +124,50 @@ impl Compiler for Resolc {
 }
 
 impl Resolc {
-    pub fn new(path: PathBuf) -> Result<Self> {
+    pub fn new(path: PathBuf, solc: Option<PathBuf>) -> Result<Self> {
         Ok(Self {
             resolc: path,
             extra_args: Vec::new(),
             base_path: None,
             allow_paths: Default::default(),
             include_paths: Default::default(),
+            solc,
         })
     }
+    pub fn solc_available_versions() -> Vec<Version> {
+        let mut ret = vec![];
+        let min_max_patch_by_minor_versions =
+            vec![(4, 12, 26), (5, 0, 17), (6, 0, 12), (7, 0, 6), (8, 0, 28)];
+        for (minor, min_patch, max_patch) in min_max_patch_by_minor_versions {
+            for i in min_patch..=max_patch {
+                ret.push(Version::new(0, minor, i));
+            }
+        }
 
+        ret
+    }
+    pub fn solc_installed_versions() -> Vec<Version> {
+        if let Ok(dir) = Self::compilers_dir() {
+            let os = get_operating_system().unwrap();
+            let solc_prefix = os.get_resolc_prefix();
+            let mut versions: Vec<Version> = walkdir::WalkDir::new(dir)
+                .max_depth(1)
+                .into_iter()
+                .filter_map(std::result::Result::ok)
+                .filter(|e| e.file_type().is_file())
+                .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+                .filter_map(|e| {
+                    e.strip_prefix(solc_prefix)
+                        .and_then(|s| s.split('-').next())
+                        .and_then(|s| Version::parse(s).ok())
+                })
+                .collect();
+            versions.sort();
+            versions
+        } else {
+            vec![]
+        }
+    }
     pub fn get_path_for_version(version: &Version) -> Result<PathBuf> {
         let maybe_resolc = Self::find_installed_version(version)?;
 
@@ -123,10 +186,8 @@ impl Resolc {
             )
         } else {
             let pre = version.pre.as_str();
-            // Use version as string without pre-release and build metadata
             let version_str = version.to_string();
             let version_str = version_str.split('-').next().unwrap();
-            // Use pre-release specific repository
             format!(
                 "https://github.com/paritytech/revive/releases/download/{pre}/resolc-{compiler_prefix}v{version_str}",
             )
@@ -333,6 +394,7 @@ fn compile_output(output: Output) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use semver::Version;
@@ -343,10 +405,12 @@ mod tests {
     struct GitHubTag {
         name: String,
     }
+
     fn resolc_instance() -> Resolc {
-        Resolc::new(PathBuf::from(
-            revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned(),
-        ))
+        Resolc::new(
+            PathBuf::from(revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned()),
+            None,
+        )
         .unwrap()
     }
 
@@ -402,7 +466,7 @@ mod tests {
     #[test]
     fn test_new_resolc_instance() {
         let path = PathBuf::from("test_resolc");
-        let resolc = Resolc::new(path.clone());
+        let resolc = Resolc::new(path.clone(), None);
         assert!(resolc.is_ok());
         let resolc = resolc.unwrap();
         assert_eq!(resolc.resolc, path);
@@ -567,7 +631,6 @@ mod tests {
     #[cfg(feature = "async")]
     #[test]
     fn test_install_single_version() {
-        // Test with the most stable version
         let version = Version::parse("0.1.0-dev").unwrap();
         match Resolc::blocking_install(&version) {
             Ok(path) => {
@@ -599,8 +662,52 @@ mod tests {
             "https://github.com/paritytech/revive/releases/download/v{}/{}v{}",
             version, compiler_prefix, version
         );
-        // Just verify URL formation - don't actually download
         assert!(url.contains("resolc"));
         assert!(url.contains(&version.to_string()));
+    }
+
+    #[test]
+    fn test_resolc_with_specific_solc() {
+        let resolc = resolc_instance();
+        let versions = resolc.available_versions(&SolcLanguage::Solidity);
+        assert!(!versions.is_empty());
+        if let Some(CompilerVersion::Installed(v)) = versions.first() {
+            assert!(Resolc::find_installed_version(v).unwrap().is_some());
+        }
+    }
+
+    #[test]
+    fn test_solc_version_compatibility() {
+        let available_versions = Resolc::solc_available_versions();
+        
+        let has_compatible_versions = available_versions
+            .iter()
+            .any(|v| v.major == 0 && v.minor == 8);
+        println!("has_compatible_versions: {:?}",has_compatible_versions);
+        assert!(has_compatible_versions, "Should have compatible solc versions");
+    }
+
+    #[test]
+    fn test_resolc_version_handling() {
+        let version = Version::new(0, 1, 0);
+        let resolc = resolc_instance();
+        
+        let reported_version = Resolc::get_version_for_path(&resolc.resolc);
+        assert!(reported_version.is_ok());
+        
+        let install_path = Resolc::compiler_path(&version);
+        assert!(install_path.is_ok());
+        assert!(install_path.unwrap().to_string_lossy().contains("0.1.0"));
+    }
+
+    #[test]
+    fn test_resolc_available_versions() {
+        let versions = Resolc::solc_available_versions();
+        
+        assert!(versions.iter().any(|v| v.major == 0 && v.minor == 8));
+        
+        let mut sorted = versions.clone();
+        sorted.sort();
+        assert_eq!(versions, sorted);
     }
 }
