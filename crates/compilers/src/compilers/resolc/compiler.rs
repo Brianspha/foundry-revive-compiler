@@ -13,7 +13,6 @@ use std::{
     process::{Command, Output, Stdio},
     str::FromStr,
 };
-pub const REVIVE_SOLC_RELEASE: Version = Version::new(1, 0, 1);
 
 #[cfg(feature = "async")]
 use std::{
@@ -432,6 +431,7 @@ mod tests {
     use semver::Version;
     use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
     use tempfile::tempdir;
+    pub const REVIVE_SOLC_RELEASE: Version = Version::new(1, 0, 1);
 
     #[derive(Debug, Deserialize)]
     struct GitHubTag {
