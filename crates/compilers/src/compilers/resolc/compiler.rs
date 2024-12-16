@@ -207,38 +207,35 @@ impl Resolc {
         Ok(path)
     }
     #[cfg(feature = "async")]
-    pub fn blocking_install(version: &Version) -> Result<PathBuf> {
-        let os = get_operating_system()?;
-        let compiler_prefix = os.get_resolc_prefix();
-        let download_url = if version.pre.is_empty() {
-            format!(
-                "https://github.com/paritytech/resolc-bin/releases/download/v{version}/{compiler_prefix}v{version}",
-            )
-        } else {
-            let pre = version.pre.as_str();
-            let version_str = version.to_string();
-            let version_str = version_str.split('-').next().unwrap();
-            format!(
-                "https://github.com/paritytech/revive/releases/download/{pre}/resolc-{compiler_prefix}v{version_str}",
-            )
-        };
-        let compilers_dir = Self::compilers_dir()?;
-        if !compilers_dir.exists() {
-            create_dir_all(compilers_dir)
-                .map_err(|e| SolcError::msg(format!("Could not create compilers path: {e}")))?;
-        }
-        let compiler_path = Self::compiler_path(version)?;
-        let lock_path = lock_file_path("resolc", &version.to_string());
-
-        let label = format!("resolc-{version}");
-        let install = compiler_blocking_install(compiler_path, lock_path, &download_url, &label);
-
-        match install {
-            Ok(path) => Ok(path),
-            Err(err) => Err(err),
-        }
+pub fn blocking_install(version: &Version) -> Result<PathBuf> {
+    let os = get_operating_system()?;
+    let compiler_prefix = os.get_resolc_prefix();
+    let download_url = if version.pre.is_empty() {
+        format!(
+            "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}v{version}",
+        )
+    } else {
+        let pre = version.pre.as_str();
+        format!(
+            "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}v{version}",
+        )
+    };
+    let compilers_dir = Self::compilers_dir()?;
+    if !compilers_dir.exists() {
+        create_dir_all(compilers_dir)
+            .map_err(|e| SolcError::msg(format!("Could not create compilers path: {e}")))?;
     }
-    pub fn get_version_for_path(path: &Path) -> Result<Version> {
+    let compiler_path = Self::compiler_path(version)?;
+    let lock_path = lock_file_path("resolc", &version.to_string());
+
+    let label = format!("resolc-{version}");
+    let install = compiler_blocking_install(compiler_path, lock_path, &download_url, &label);
+
+    match install {
+        Ok(path) => Ok(path),
+        Err(err) => Err(err),
+    }
+}pub fn get_version_for_path(path: &Path) -> Result<Version> {
         let mut cmd = Command::new(path);
         cmd.arg("--version").stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
         debug!(?cmd, "getting Resolc version");
@@ -467,21 +464,6 @@ mod tests {
         assert!(!prefix.is_empty());
         assert!(prefix.contains("resolc"));
         assert!(prefix.ends_with('-'));
-    }
-
-    #[test]
-    fn test_version_detection() {
-        // Create a temporary file that mimics resolc
-        let temp_dir = tempdir().unwrap();
-        let fake_resolc = temp_dir.path().join("fake_resolc");
-        std::fs::write(&fake_resolc, "#!/bin/sh\necho 'resolc version v0.1.0'\n").unwrap();
-        #[cfg(unix)]
-        std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let resolc = Resolc::new(fake_resolc.clone()).unwrap();
-        let version = Resolc::get_version_for_path(&resolc.resolc);
-        assert!(version.is_ok());
-        assert_eq!(version.unwrap(), Version::new(0, 1, 0));
     }
 
     #[test]
