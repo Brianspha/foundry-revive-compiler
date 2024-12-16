@@ -76,6 +76,7 @@ pub struct Resolc {
     pub include_paths: BTreeSet<PathBuf>,
     pub solc: Option<PathBuf>,
 }
+
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SolcVersionInfo {
     /// The solc compiler version (e.g: 0.8.20)
