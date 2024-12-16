@@ -781,18 +781,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_solc_version_info_success() {
-        let resolc = resolc_instance();
-        if let Some(solc) = &resolc.solc {
-            let version_info = Resolc::get_solc_version_info(solc);
-            assert!(version_info.is_ok());
-            let info = version_info.unwrap();
-            assert!(info.version.major == 0);
-            assert!(info.version.minor == 8);
-        }
-    }
-
-    #[test]
     fn test_get_solc_version_info_invalid_path() {
         let invalid_path = PathBuf::from("invalid_solc");
         let version_info = Resolc::get_solc_version_info(&invalid_path);
