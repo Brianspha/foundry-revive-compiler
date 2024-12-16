@@ -6,7 +6,7 @@ use crate::{
 };
 use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
 use semver::Version;
-use serde::{Serialize,Deserialize};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -145,6 +145,38 @@ impl Resolc {
         }
 
         ret
+    }
+    pub fn get_solc_version_info(path: &Path) -> Result<SolcVersionInfo, SolcError> {
+        let mut cmd = Command::new(path);
+        cmd.arg("--version").stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
+        debug!(?cmd, "getting solc versions");
+
+        let output = cmd.output().map_err(|e| SolcError::io(e, path))?;
+        trace!(?output);
+
+        if !output.status.success() {
+            return Err(SolcError::solc_output(&output));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        // Get solc version from second line
+        let version =
+            lines.get(1).ok_or_else(|| SolcError::msg("Version not found in Solc output"))?;
+        let version =
+            Version::from_str(&version.trim_start_matches("Version: ").replace(".g++", ".gcc"))?;
+
+        let revive_version = lines.last().and_then(|line| {
+            if line.starts_with("Revive") {
+                let version_str = line.trim_start_matches("Revive:").trim();
+                Version::parse(version_str).ok()
+            } else {
+                None
+            }
+        });
+
+        Ok(SolcVersionInfo { version, revive_version })
     }
     pub fn solc_installed_versions() -> Vec<Version> {
         if let Ok(dir) = Self::compilers_dir() {
@@ -367,13 +399,13 @@ fn map_io_err(resolc_path: &Path) -> impl FnOnce(std::io::Error) -> SolcError + 
 fn version_from_output(output: Output) -> Result<Version> {
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let version = stdout
+        let version_line = stdout
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .last()
+            .find(|line| line.contains("version"))
             .ok_or_else(|| SolcError::msg("Version not found in resolc output"))?;
 
-        version
+        version_line
             .split_whitespace()
             .find_map(|s| {
                 let trimmed = s.trim_start_matches('v');
@@ -398,7 +430,7 @@ fn compile_output(output: Output) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use semver::Version;
-    use std::os::unix::process::ExitStatusExt;
+    use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
     use tempfile::tempdir;
 
     #[derive(Debug, Deserialize)]
@@ -441,9 +473,17 @@ mod tests {
 
     #[test]
     fn test_version_detection() {
-        let resolc = resolc_instance();
+        // Create a temporary file that mimics resolc
+        let temp_dir = tempdir().unwrap();
+        let fake_resolc = temp_dir.path().join("fake_resolc");
+        std::fs::write(&fake_resolc, "#!/bin/sh\necho 'resolc version v0.1.0'\n").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let resolc = Resolc::new(fake_resolc.clone(), None).unwrap();
         let version = Resolc::get_version_for_path(&resolc.resolc);
         assert!(version.is_ok());
+        assert_eq!(version.unwrap(), Version::new(0, 1, 0));
     }
 
     #[test]
@@ -501,7 +541,16 @@ mod tests {
         let version = version_from_output(output);
         assert!(version.is_err());
     }
-
+    #[test]
+    fn test_version_info() {
+        let output = Output {
+            status: std::process::ExitStatus::from_raw(1),
+            stdout: Vec::new(),
+            stderr: b"error\n".to_vec(),
+        };
+        let version = version_from_output(output);
+        assert!(version.is_err());
+    }
     #[test]
     fn test_invalid_version_output() {
         let output = Output {
@@ -565,7 +614,7 @@ mod tests {
     fn resolc_compile_works() {
         let input = include_str!("../../../../../test-data/resolc/input/compile-input.json");
         let input: ResolcInput = serde_json::from_str(input).unwrap();
-        let out = resolc_instance().compile(&input).unwrap();
+        let out: ResolcCompilerOutput = resolc_instance().compile(&input).unwrap();
         assert!(!out.has_error());
     }
 
@@ -679,35 +728,211 @@ mod tests {
     #[test]
     fn test_solc_version_compatibility() {
         let available_versions = Resolc::solc_available_versions();
-        
-        let has_compatible_versions = available_versions
-            .iter()
-            .any(|v| v.major == 0 && v.minor == 8);
-        println!("has_compatible_versions: {:?}",has_compatible_versions);
+
+        let has_compatible_versions =
+            available_versions.iter().any(|v| v.major == 0 && v.minor == 8);
+        println!("has_compatible_versions: {:?}", has_compatible_versions);
         assert!(has_compatible_versions, "Should have compatible solc versions");
     }
 
     #[test]
     fn test_resolc_version_handling() {
         let version = Version::new(0, 1, 0);
-        let resolc = resolc_instance();
-        
+
+        // Create a temporary file that mimics resolc
+        let temp_dir = tempdir().unwrap();
+        let fake_resolc = temp_dir.path().join("fake_resolc");
+        std::fs::write(&fake_resolc, "#!/bin/sh\necho 'resolc version v0.1.0'\n").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let resolc = Resolc::new(fake_resolc.clone(), None).unwrap();
+
         let reported_version = Resolc::get_version_for_path(&resolc.resolc);
         assert!(reported_version.is_ok());
-        
+        assert_eq!(reported_version.unwrap(), Version::new(0, 1, 0));
+
         let install_path = Resolc::compiler_path(&version);
         assert!(install_path.is_ok());
         assert!(install_path.unwrap().to_string_lossy().contains("0.1.0"));
     }
-
+    #[test]
+    fn test_resolc_solc_release() {
+        assert_eq!(REVIVE_SOLC_RELEASE, Version::new(1, 0, 1));
+        let solc_versions = Resolc::solc_available_versions();
+        // Verify we have versions compatible with REVIVE_SOLC_RELEASE
+        assert!(solc_versions.iter().any(|v| v.major == 0 && v.minor == 8));
+    }
     #[test]
     fn test_resolc_available_versions() {
         let versions = Resolc::solc_available_versions();
-        
+
         assert!(versions.iter().any(|v| v.major == 0 && v.minor == 8));
-        
+
         let mut sorted = versions.clone();
         sorted.sort();
         assert_eq!(versions, sorted);
+    }
+    #[test]
+    fn test_solc_prefix() {
+        let os = get_operating_system().unwrap();
+        let prefix = os.get_solc_prefix();
+        assert!(!prefix.is_empty());
+        assert!(prefix.contains("solc"));
+        assert!(prefix.ends_with('-'));
+    }
+
+    #[test]
+    fn test_get_solc_version_info_success() {
+        let resolc = resolc_instance();
+        if let Some(solc) = &resolc.solc {
+            let version_info = Resolc::get_solc_version_info(solc);
+            assert!(version_info.is_ok());
+            let info = version_info.unwrap();
+            assert!(info.version.major == 0);
+            assert!(info.version.minor == 8);
+        }
+    }
+
+    #[test]
+    fn test_get_solc_version_info_invalid_path() {
+        let invalid_path = PathBuf::from("invalid_solc");
+        let version_info = Resolc::get_solc_version_info(&invalid_path);
+        assert!(version_info.is_err());
+    }
+
+    #[test]
+    fn test_configure_cmd_with_base_path() {
+        let mut resolc = resolc_instance();
+        let temp_dir = tempdir().unwrap();
+        resolc.base_path = Some(temp_dir.path().to_path_buf());
+        let cmd = resolc.configure_cmd();
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&OsStr::new("--standard-json")));
+    }
+
+    #[test]
+    fn test_configure_cmd_with_paths() {
+        let mut resolc = resolc_instance();
+        let temp_dir = tempdir().unwrap();
+        resolc.allow_paths.insert(temp_dir.path().to_path_buf());
+        resolc.include_paths.insert(temp_dir.path().to_path_buf());
+        let cmd = resolc.configure_cmd();
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&OsStr::new("--standard-json")));
+    }
+
+    #[test]
+    fn test_resolc_instance_with_solc() {
+        let path = PathBuf::from("test_resolc");
+        let solc_path = PathBuf::from("test_solc");
+        let resolc = Resolc::new(path.clone(), Some(solc_path.clone()));
+        assert!(resolc.is_ok());
+        let resolc = resolc.unwrap();
+        assert_eq!(resolc.resolc, path);
+        assert_eq!(resolc.solc, Some(solc_path));
+    }
+
+    #[test]
+    fn test_compiler_path_with_spaces() {
+        let version = Version::new(0, 1, 0);
+        let path = Resolc::compiler_path(&version).unwrap();
+        assert!(!path.to_string_lossy().contains(" "));
+    }
+
+    #[test]
+    fn test_compilers_dir_permissions() {
+        let dir = Resolc::compilers_dir().unwrap();
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+        }
+        let metadata = std::fs::metadata(&dir).unwrap();
+        assert!(metadata.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = metadata.permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+    }
+
+    #[test]
+    fn test_version_from_output_with_whitespace() {
+        let output = Output {
+            status: std::process::ExitStatus::from_raw(0),
+            stdout: b"resolc version   v1.5.7  \n".to_vec(),
+            stderr: Vec::new(),
+        };
+        let version = version_from_output(output);
+        assert!(version.is_ok());
+        let version = version.unwrap();
+        assert_eq!(version.major, 1);
+        assert_eq!(version.minor, 5);
+        assert_eq!(version.patch, 7);
+    }
+
+    #[test]
+    fn test_version_from_output_with_extra_info() {
+        let output = Output {
+            status: std::process::ExitStatus::from_raw(0),
+            stdout: b"Some other info\nresolc version v1.5.7\nExtra info".to_vec(),
+            stderr: Vec::new(),
+        };
+        let version = version_from_output(output);
+        assert!(version.is_ok(), "Failed to parse version: {:?}", version);
+        let version = version.unwrap();
+        assert_eq!(version.to_string(), "1.5.7");
+    }
+
+    #[test]
+    fn test_compile_output_with_stderr() {
+        let output = Output {
+            status: std::process::ExitStatus::from_raw(1),
+            stdout: Vec::new(),
+            stderr: b"compilation error\n".to_vec(),
+        };
+        let result = compile_output(output);
+        assert!(result.is_err());
+        assert!(format!("{:?}", result.unwrap_err()).contains("compilation error"));
+    }
+
+    #[test]
+    fn test_solc_available_versions_sorted() {
+        let versions = Resolc::solc_available_versions();
+        let mut sorted = versions.clone();
+        sorted.sort();
+        assert_eq!(versions, sorted, "Versions should be returned in sorted order");
+
+        // Check version ranges
+        for version in versions {
+            assert_eq!(version.major, 0, "Major version should be 0");
+            assert!(
+                version.minor >= 4 && version.minor <= 8,
+                "Minor version should be between 4 and 8"
+            );
+        }
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn test_blocking_install_url_formation() {
+        let version = Version::parse("0.1.0-dev").unwrap();
+        let os = get_operating_system().unwrap();
+        let compiler_prefix = os.get_resolc_prefix();
+
+        // Test pre-release version URL
+        let mut pre_version = version.clone();
+        pre_version.pre = semver::Prerelease::new("alpha.1").unwrap();
+        match Resolc::blocking_install(&pre_version) {
+            Ok(_) => (),
+            Err(e) => {
+                assert!(
+                    e.to_string().contains("status code 404")
+                        || e.to_string().contains("Failed to download"),
+                    "Unexpected error: {}",
+                    e
+                );
+            }
+        }
     }
 }
