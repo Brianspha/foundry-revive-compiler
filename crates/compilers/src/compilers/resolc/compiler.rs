@@ -67,6 +67,7 @@ impl ResolcOS {
     }
 }
 
+
 #[derive(Clone, Debug)]
 pub struct Resolc {
     pub resolc: PathBuf,
@@ -74,9 +75,7 @@ pub struct Resolc {
     pub base_path: Option<PathBuf>,
     pub allow_paths: BTreeSet<PathBuf>,
     pub include_paths: BTreeSet<PathBuf>,
-    pub solc: Option<PathBuf>,
 }
-
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SolcVersionInfo {
     /// The solc compiler version (e.g: 0.8.20)
@@ -124,14 +123,13 @@ impl Compiler for Resolc {
 }
 
 impl Resolc {
-    pub fn new(path: PathBuf, solc: Option<PathBuf>) -> Result<Self> {
+    pub fn new(path: PathBuf) -> Result<Self> {
         Ok(Self {
             resolc: path,
             extra_args: Vec::new(),
             base_path: None,
             allow_paths: Default::default(),
-            include_paths: Default::default(),
-            solc,
+            include_paths: Default::default()
         })
     }
     pub fn solc_available_versions() -> Vec<Version> {
@@ -442,7 +440,6 @@ mod tests {
     fn resolc_instance() -> Resolc {
         Resolc::new(
             PathBuf::from(revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned()),
-            None,
         )
         .unwrap()
     }
@@ -481,7 +478,7 @@ mod tests {
         #[cfg(unix)]
         std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let resolc = Resolc::new(fake_resolc.clone(), None).unwrap();
+        let resolc = Resolc::new(fake_resolc.clone()).unwrap();
         let version = Resolc::get_version_for_path(&resolc.resolc);
         assert!(version.is_ok());
         assert_eq!(version.unwrap(), Version::new(0, 1, 0));
@@ -507,7 +504,7 @@ mod tests {
     #[test]
     fn test_new_resolc_instance() {
         let path = PathBuf::from("test_resolc");
-        let resolc = Resolc::new(path.clone(), None);
+        let resolc = Resolc::new(path.clone());
         assert!(resolc.is_ok());
         let resolc = resolc.unwrap();
         assert_eq!(resolc.resolc, path);
@@ -747,7 +744,7 @@ mod tests {
         #[cfg(unix)]
         std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let resolc = Resolc::new(fake_resolc.clone(), None).unwrap();
+        let resolc = Resolc::new(fake_resolc.clone()).unwrap();
 
         let reported_version = Resolc::get_version_for_path(&resolc.resolc);
         assert!(reported_version.is_ok());
@@ -826,12 +823,10 @@ mod tests {
     #[test]
     fn test_resolc_instance_with_solc() {
         let path = PathBuf::from("test_resolc");
-        let solc_path = PathBuf::from("test_solc");
-        let resolc = Resolc::new(path.clone(), Some(solc_path.clone()));
+        let resolc = Resolc::new(path.clone());
         assert!(resolc.is_ok());
         let resolc = resolc.unwrap();
         assert_eq!(resolc.resolc, path);
-        assert_eq!(resolc.solc, Some(solc_path));
     }
 
     #[test]
