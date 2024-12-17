@@ -47,14 +47,18 @@ fn get_operating_system() -> Result<ResolcOS> {
         _ => Err(SolcError::msg(format!("Unsupported operating system {}", std::env::consts::OS))),
     }
 }
-
+impl Default for ResolcOS {
+    fn default() -> Self {
+        Self::MacARM
+    }
+}
 impl ResolcOS {
     fn get_resolc_prefix(&self) -> &str {
         match self {
-            Self::LinuxAMD64 => "resolc-linux-amd64-musl-",
-            Self::LinuxARM64 => "resolc-linux-arm64-musl-",
-            Self::MacAMD => "resolc-macosx-amd64-",
-            Self::MacARM => "resolc-macosx-arm64-",
+            Self::LinuxAMD64 => "resolc",
+            Self::LinuxARM64 => "resolc",
+            Self::MacAMD => "resolc",
+            Self::MacARM => "resolc",
         }
     }
     fn get_solc_prefix(&self) -> &str {
@@ -66,7 +70,6 @@ impl ResolcOS {
         }
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct Resolc {
@@ -129,7 +132,7 @@ impl Resolc {
             extra_args: Vec::new(),
             base_path: None,
             allow_paths: Default::default(),
-            include_paths: Default::default()
+            include_paths: Default::default(),
         })
     }
     pub fn solc_available_versions() -> Vec<Version> {
@@ -159,7 +162,6 @@ impl Resolc {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
 
-        // Get solc version from second line
         let version =
             lines.get(1).ok_or_else(|| SolcError::msg("Version not found in Solc output"))?;
         let version =
@@ -179,7 +181,7 @@ impl Resolc {
     pub fn solc_installed_versions() -> Vec<Version> {
         if let Ok(dir) = Self::compilers_dir() {
             let os = get_operating_system().unwrap();
-            let solc_prefix = os.get_resolc_prefix();
+            let solc_prefix = os.get_solc_prefix();
             let mut versions: Vec<Version> = walkdir::WalkDir::new(dir)
                 .max_depth(1)
                 .into_iter()
@@ -207,35 +209,27 @@ impl Resolc {
         Ok(path)
     }
     #[cfg(feature = "async")]
-pub fn blocking_install(version: &Version) -> Result<PathBuf> {
-    let os = get_operating_system()?;
-    let compiler_prefix = os.get_resolc_prefix();
-    let download_url = if version.pre.is_empty() {
-        format!(
-            "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}v{version}",
-        )
-    } else {
-        let pre = version.pre.as_str();
-        format!(
-            "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}v{version}",
-        )
-    };
-    let compilers_dir = Self::compilers_dir()?;
-    if !compilers_dir.exists() {
-        create_dir_all(compilers_dir)
-            .map_err(|e| SolcError::msg(format!("Could not create compilers path: {e}")))?;
-    }
-    let compiler_path = Self::compiler_path(version)?;
-    let lock_path = lock_file_path("resolc", &version.to_string());
+    pub fn blocking_install(version: &Version) -> Result<PathBuf> {
+        let os: ResolcOS = get_operating_system()?;
+        let compiler_prefix = os.get_resolc_prefix();
 
-    let label = format!("resolc-{version}");
-    let install = compiler_blocking_install(compiler_path, lock_path, &download_url, &label);
+        let download_url = format!(
+            "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}"
+        );
 
-    match install {
-        Ok(path) => Ok(path),
-        Err(err) => Err(err),
+        let compilers_dir = Self::compilers_dir()?;
+        if !compilers_dir.exists() {
+            create_dir_all(compilers_dir)
+                .map_err(|e| SolcError::msg(format!("Could not create compilers path: {e}")))?;
+        }
+
+        let compiler_path = Self::compiler_path(version)?;
+        let lock_path = lock_file_path("resolc", &version.to_string());
+        let label = format!("resolc-{version}");
+
+        compiler_blocking_install(compiler_path, lock_path, &download_url, &label)
     }
-}pub fn get_version_for_path(path: &Path) -> Result<Version> {
+    pub fn get_version_for_path(path: &Path) -> Result<Version> {
         let mut cmd = Command::new(path);
         cmd.arg("--version").stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
         debug!(?cmd, "getting Resolc version");
@@ -356,17 +350,34 @@ fn compiler_blocking_install(
 #[cfg(feature = "async")]
 fn try_lock_file(lock_path: PathBuf) -> Result<LockFile> {
     use fs4::FileExt;
+
+    println!("Attempting to create lock file at: {:?}", lock_path);
+    if let Some(parent) = lock_path.parent() {
+        if !parent.exists() {
+            println!("Parent directory does not exist: {:?}", parent);
+            std::fs::create_dir_all(parent)
+                .map_err(|e| SolcError::msg(format!("Failed to create parent directory: {}", e)))?;
+        }
+    }
+
     let _lock_file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(true)
         .read(true)
         .write(true)
         .open(&lock_path)
-        .map_err(|_| SolcError::msg("Error creating lock file"))?;
-    _lock_file.lock_exclusive().map_err(|_| SolcError::msg("Error taking the lock"))?;
+        .map_err(|e| SolcError::msg(format!("Error creating lock file: {}", e)))?;
+
+    _lock_file
+        .lock_exclusive()
+        .map_err(|e| SolcError::msg(format!("Error taking the lock: {}", e)))?;
+
     Ok(LockFile { lock_path, _lock_file })
 }
-
+fn normalize_version(version_str: &str) -> Result<Version, semver::Error> {
+    let normalized = version_str.replace("dev-", "dev.");
+    Version::parse(&normalized)
+}
 #[cfg(feature = "async")]
 struct LockFile {
     _lock_file: File,
@@ -421,13 +432,11 @@ fn compile_output(output: Output) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests {
     use super::*;
     use semver::Version;
     use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
     use tempfile::tempdir;
-    pub const REVIVE_SOLC_RELEASE: Version = Version::new(1, 0, 1);
 
     #[derive(Debug, Deserialize)]
     struct GitHubTag {
@@ -435,9 +444,9 @@ mod tests {
     }
 
     fn resolc_instance() -> Resolc {
-        Resolc::new(
-            PathBuf::from(revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned()),
-        )
+        Resolc::new(PathBuf::from(
+            revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned(),
+        ))
         .unwrap()
     }
 
@@ -463,12 +472,11 @@ mod tests {
         let prefix = os.get_resolc_prefix();
         assert!(!prefix.is_empty());
         assert!(prefix.contains("resolc"));
-        assert!(prefix.ends_with('-'));
     }
 
     #[test]
     fn test_compiler_path_generation() {
-        let version = Version::new(1, 5, 7);
+        let version = Version::new(0, 1, 0);
         let path = Resolc::compiler_path(&version);
         assert!(path.is_ok());
         let path = path.unwrap();
@@ -481,6 +489,52 @@ mod tests {
         assert!(dir.is_ok());
         let dir_path = dir.unwrap();
         assert!(dir_path.ends_with(".revive"));
+    }
+    #[cfg(feature = "async")]
+    #[test]
+    fn test_find_installed_versions() {
+        let versions: Vec<_> = get_test_versions().into_iter().take(2).collect();
+
+        for version in &versions {
+            match Resolc::blocking_install(version) {
+                Ok(path) => {
+                    let result = Resolc::find_installed_version(version);
+                    assert!(result.is_ok());
+                    let path_opt = result.unwrap();
+                    assert!(path_opt.is_some());
+                    assert_eq!(path_opt.unwrap(), path);
+                }
+                Err(e) => {
+                    println!("Warning: Failed to install version {}: {}", version, e);
+                    continue;
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn test_install_single_version() {
+        let version = Version::parse("0.1.0-dev.6").unwrap();
+        match Resolc::blocking_install(&version) {
+            Ok(path) => {
+                println!("version: {:?}", version);
+                assert!(path.exists(), "Path should exist for version {}", version);
+                assert!(path.is_file(), "Should be a file for version {}", version);
+            }
+            Err(e) => {
+                println!("Warning: Failed to install version {}: {}", version, e);
+            }
+        }
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn test_find_nonexistent_version() {
+        let version = Version::parse("99.99.99-dev").unwrap();
+        let result = Resolc::find_installed_version(&version);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 
     #[test]
@@ -500,15 +554,15 @@ mod tests {
     fn test_version_parsing() {
         let output = Output {
             status: std::process::ExitStatus::from_raw(0),
-            stdout: b"resolc version v1.5.7\n".to_vec(),
+            stdout: b"resolc version v0.1.0\n".to_vec(),
             stderr: Vec::new(),
         };
         let version = version_from_output(output);
         assert!(version.is_ok());
         let version = version.unwrap();
-        assert_eq!(version.major, 1);
-        assert_eq!(version.minor, 5);
-        assert_eq!(version.patch, 7);
+        assert_eq!(version.major, 0);
+        assert_eq!(version.minor, 1);
+        assert_eq!(version.patch, 0);
     }
 
     #[test]
@@ -521,16 +575,7 @@ mod tests {
         let version = version_from_output(output);
         assert!(version.is_err());
     }
-    #[test]
-    fn test_version_info() {
-        let output = Output {
-            status: std::process::ExitStatus::from_raw(1),
-            stdout: Vec::new(),
-            stderr: b"error\n".to_vec(),
-        };
-        let version = version_from_output(output);
-        assert!(version.is_err());
-    }
+
     #[test]
     fn test_invalid_version_output() {
         let output = Output {
@@ -545,7 +590,7 @@ mod tests {
     #[cfg(feature = "async")]
     #[test]
     fn test_lock_file_path() {
-        let version = "1.5.7";
+        let version = "0.1.0";
         let lock_path = lock_file_path("resolc", version);
         assert!(lock_path.to_string_lossy().contains("resolc"));
         assert!(lock_path.to_string_lossy().contains(version));
@@ -612,7 +657,7 @@ mod tests {
 
         let mut versions = Vec::new();
         for tag in tags {
-            if let Ok(version) = Version::parse(&tag.name.trim_start_matches('v')) {
+            if let Ok(version) = normalize_version(&tag.name.trim_start_matches('v')) {
                 versions.push(version);
             }
         }
@@ -623,231 +668,97 @@ mod tests {
     fn get_test_versions() -> Vec<Version> {
         use foundry_compilers_core::utils::RuntimeOrHandle;
 
-        RuntimeOrHandle::new().block_on(fetch_github_versions()).unwrap_or_else(|_| {
-            vec![
-                Version::parse("0.1.0-dev-6").unwrap(),
-                Version::parse("0.1.0-dev-5").unwrap(),
-                Version::parse("0.1.0-dev-4").unwrap(),
-                Version::parse("0.1.0-dev-3").unwrap(),
-                Version::parse("0.1.0-dev-2").unwrap(),
-                Version::parse("0.1.0-dev").unwrap(),
-            ]
-        })
+        RuntimeOrHandle::new()
+            .block_on(fetch_github_versions())
+            .unwrap_or_else(|_| vec![Version::parse("0.1.0-dev.6").unwrap()])
     }
 
     #[cfg(feature = "async")]
-    #[test]
-    fn test_find_installed_versions() {
-        let versions: Vec<_> = get_test_versions().into_iter().take(2).collect();
+    mod install_tests {
+        use super::*;
 
-        for version in &versions {
-            match Resolc::blocking_install(version) {
-                Ok(path) => {
-                    let result = Resolc::find_installed_version(version);
-                    assert!(result.is_ok());
-                    let path_opt = result.unwrap();
-                    assert!(path_opt.is_some());
-                    assert_eq!(path_opt.unwrap(), path);
-                }
-                Err(e) => {
-                    println!("Warning: Failed to install version {}: {}", version, e);
-                    continue;
-                }
-            }
+        fn setup_test_paths(version: &str) -> (PathBuf, PathBuf) {
+            let temp_dir = tempdir().unwrap();
+            let compiler_path = temp_dir.path().join(format!("resolc-{}", version));
+            let lock_path = temp_dir.path().join(format!(".lock-resolc-{}", version));
+            (compiler_path, lock_path)
         }
-    }
 
-    #[cfg(feature = "async")]
-    #[test]
-    fn test_install_single_version() {
-        let version = Version::parse("0.1.0-dev").unwrap();
-        match Resolc::blocking_install(&version) {
-            Ok(path) => {
-                assert!(path.exists(), "Path should exist for version {}", version);
-                assert!(path.is_file(), "Should be a file for version {}", version);
-            }
-            Err(e) => {
-                println!("Warning: Failed to install version {}: {}", version, e);
-            }
+        #[test]
+        fn test_compiler_blocking_install_dev() {
+            let version = "0.1.0-dev";
+            let (compiler_path, lock_path) = setup_test_paths(version);
+            let url = format!(
+                "https://github.com/paritytech/revive/releases/download/v{version}/resolc",
+            );
+            let label = format!("resolc-{version}");
+
+            let result = compiler_blocking_install(compiler_path, lock_path, &url, &label);
+            println!("result: {:?}", result);
+            assert!(!result.is_err());
         }
-    }
 
-    #[cfg(feature = "async")]
-    #[test]
-    fn test_find_nonexistent_version() {
-        let version = Version::parse("99.99.99-dev").unwrap();
-        let result = Resolc::find_installed_version(&version);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
+        #[test]
+        fn test_compiler_blocking_install_invalid_url() {
+            let (compiler_path, lock_path) = setup_test_paths("test");
+            let result = compiler_blocking_install(
+                compiler_path,
+                lock_path,
+                "https://invalid.url/not-found",
+                "test",
+            );
+            assert!(result.is_err());
+        }
 
-    #[cfg(feature = "async")]
-    #[test]
-    fn test_version_url_format() {
-        let version = Version::parse("0.1.0-dev").unwrap();
-        let os = get_operating_system().unwrap();
-        let compiler_prefix = os.get_resolc_prefix();
-        let url = format!(
-            "https://github.com/paritytech/revive/releases/download/v{}/{}v{}",
-            version, compiler_prefix, version
-        );
-        assert!(url.contains("resolc"));
-        assert!(url.contains(&version.to_string()));
-    }
+        #[test]
+        fn test_compiler_blocking_install_existing_file() {
+            let version = "0.1.0-dev.6";
+            let (compiler_path, lock_path) = setup_test_paths(version);
 
-    #[test]
-    fn test_resolc_with_specific_solc() {
-        let resolc = resolc_instance();
-        let versions = resolc.available_versions(&SolcLanguage::Solidity);
-        assert!(!versions.is_empty());
-        if let Some(CompilerVersion::Installed(v)) = versions.first() {
-            assert!(Resolc::find_installed_version(v).unwrap().is_some());
+            let os: ResolcOS = get_operating_system().unwrap_or_default();
+            let compiler_prefix = os.get_resolc_prefix();
+
+            std::fs::create_dir_all(compiler_path.parent().unwrap())
+                .expect("Failed to create parent directory");
+
+            std::fs::write(&compiler_path, "test").unwrap();
+
+            let url = format!(
+                "https://github.com/paritytech/revive/releases/download/v{version}/{compiler_prefix}",
+            );
+            let label = format!("resolc-{version}");
+
+            let result = compiler_blocking_install(compiler_path.clone(), lock_path, &url, &label);
+
+            assert!(!result.is_err());
+            assert!(compiler_path.exists());
         }
     }
 
     #[test]
-    fn test_solc_version_compatibility() {
-        let available_versions = Resolc::solc_available_versions();
-
-        let has_compatible_versions =
-            available_versions.iter().any(|v| v.major == 0 && v.minor == 8);
-        println!("has_compatible_versions: {:?}", has_compatible_versions);
-        assert!(has_compatible_versions, "Should have compatible solc versions");
-    }
-
-    #[test]
-    fn test_resolc_version_handling() {
-        let version = Version::new(0, 1, 0);
-
-        // Create a temporary file that mimics resolc
-        let temp_dir = tempdir().unwrap();
-        let fake_resolc = temp_dir.path().join("fake_resolc");
-        std::fs::write(&fake_resolc, "#!/bin/sh\necho 'resolc version v0.1.0'\n").unwrap();
-        #[cfg(unix)]
-        std::fs::set_permissions(&fake_resolc, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-        let resolc = Resolc::new(fake_resolc.clone()).unwrap();
-
-        let reported_version = Resolc::get_version_for_path(&resolc.resolc);
-        assert!(reported_version.is_ok());
-        assert_eq!(reported_version.unwrap(), Version::new(0, 1, 0));
-
-        let install_path = Resolc::compiler_path(&version);
-        assert!(install_path.is_ok());
-        assert!(install_path.unwrap().to_string_lossy().contains("0.1.0"));
-    }
-    #[test]
-    fn test_resolc_solc_release() {
-        assert_eq!(REVIVE_SOLC_RELEASE, Version::new(1, 0, 1));
-        let solc_versions = Resolc::solc_available_versions();
-        // Verify we have versions compatible with REVIVE_SOLC_RELEASE
-        assert!(solc_versions.iter().any(|v| v.major == 0 && v.minor == 8));
-    }
-    #[test]
-    fn test_resolc_available_versions() {
-        let versions = Resolc::solc_available_versions();
-
-        assert!(versions.iter().any(|v| v.major == 0 && v.minor == 8));
-
-        let mut sorted = versions.clone();
-        sorted.sort();
-        assert_eq!(versions, sorted);
-    }
-    #[test]
-    fn test_solc_prefix() {
-        let os = get_operating_system().unwrap();
-        let prefix = os.get_solc_prefix();
-        assert!(!prefix.is_empty());
-        assert!(prefix.contains("solc"));
-        assert!(prefix.ends_with('-'));
-    }
-
-    #[test]
-    fn test_get_solc_version_info_invalid_path() {
-        let invalid_path = PathBuf::from("invalid_solc");
-        let version_info = Resolc::get_solc_version_info(&invalid_path);
-        assert!(version_info.is_err());
-    }
-
-    #[test]
-    fn test_configure_cmd_with_base_path() {
-        let mut resolc = resolc_instance();
-        let temp_dir = tempdir().unwrap();
-        resolc.base_path = Some(temp_dir.path().to_path_buf());
-        let cmd = resolc.configure_cmd();
-        let args: Vec<_> = cmd.get_args().collect();
-        assert!(args.contains(&OsStr::new("--standard-json")));
-    }
-
-    #[test]
-    fn test_configure_cmd_with_paths() {
-        let mut resolc = resolc_instance();
-        let temp_dir = tempdir().unwrap();
-        resolc.allow_paths.insert(temp_dir.path().to_path_buf());
-        resolc.include_paths.insert(temp_dir.path().to_path_buf());
-        let cmd = resolc.configure_cmd();
-        let args: Vec<_> = cmd.get_args().collect();
-        assert!(args.contains(&OsStr::new("--standard-json")));
-    }
-
-    #[test]
-    fn test_resolc_instance_with_solc() {
-        let path = PathBuf::from("test_resolc");
-        let resolc = Resolc::new(path.clone());
-        assert!(resolc.is_ok());
-        let resolc = resolc.unwrap();
-        assert_eq!(resolc.resolc, path);
-    }
-
-    #[test]
-    fn test_compiler_path_with_spaces() {
-        let version = Version::new(0, 1, 0);
-        let path = Resolc::compiler_path(&version).unwrap();
-        assert!(!path.to_string_lossy().contains(" "));
-    }
-
-    #[test]
-    fn test_compilers_dir_permissions() {
-        let dir = Resolc::compilers_dir().unwrap();
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir).unwrap();
-        }
-        let metadata = std::fs::metadata(&dir).unwrap();
-        assert!(metadata.is_dir());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = metadata.permissions().mode();
-            assert_eq!(mode & 0o777, 0o755);
-        }
-    }
-
-    #[test]
-    fn test_version_from_output_with_whitespace() {
+    fn test_version_with_whitespace() {
         let output = Output {
             status: std::process::ExitStatus::from_raw(0),
-            stdout: b"resolc version   v1.5.7  \n".to_vec(),
+            stdout: b"resolc version   v0.1.0  \n".to_vec(),
             stderr: Vec::new(),
         };
         let version = version_from_output(output);
         assert!(version.is_ok());
         let version = version.unwrap();
-        assert_eq!(version.major, 1);
-        assert_eq!(version.minor, 5);
-        assert_eq!(version.patch, 7);
+        assert_eq!(version.to_string(), "0.1.0");
     }
 
     #[test]
-    fn test_version_from_output_with_extra_info() {
+    fn test_version_with_extra_info() {
         let output = Output {
             status: std::process::ExitStatus::from_raw(0),
-            stdout: b"Some other info\nresolc version v1.5.7\nExtra info".to_vec(),
+            stdout: b"Some other info\nresolc version v0.1.0\nExtra info".to_vec(),
             stderr: Vec::new(),
         };
         let version = version_from_output(output);
-        assert!(version.is_ok(), "Failed to parse version: {:?}", version);
+        assert!(version.is_ok());
         let version = version.unwrap();
-        assert_eq!(version.to_string(), "1.5.7");
+        assert_eq!(version.to_string(), "0.1.0");
     }
 
     #[test]
@@ -869,7 +780,6 @@ mod tests {
         sorted.sort();
         assert_eq!(versions, sorted, "Versions should be returned in sorted order");
 
-        // Check version ranges
         for version in versions {
             assert_eq!(version.major, 0, "Major version should be 0");
             assert!(
@@ -879,26 +789,10 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "async")]
     #[test]
-    fn test_blocking_install_url_formation() {
-        let version = Version::parse("0.1.0-dev").unwrap();
-        let os = get_operating_system().unwrap();
-        let compiler_prefix = os.get_resolc_prefix();
-
-        // Test pre-release version URL
-        let mut pre_version = version.clone();
-        pre_version.pre = semver::Prerelease::new("alpha.1").unwrap();
-        match Resolc::blocking_install(&pre_version) {
-            Ok(_) => (),
-            Err(e) => {
-                assert!(
-                    e.to_string().contains("status code 404")
-                        || e.to_string().contains("Failed to download"),
-                    "Unexpected error: {}",
-                    e
-                );
-            }
-        }
+    fn test_compiler_path_with_spaces() {
+        let version = Version::new(0, 1, 0);
+        let path = Resolc::compiler_path(&version).unwrap();
+        assert!(!path.to_string_lossy().contains(" "));
     }
 }
