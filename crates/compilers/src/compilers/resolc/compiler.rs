@@ -1,7 +1,6 @@
 use crate::{
     error::{Result, SolcError},
     resolver::parse::SolData,
-    solc::SolcCompiler,
     Compiler, CompilerVersion,
 };
 use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
@@ -57,8 +56,8 @@ impl ResolcOS {
         match self {
             Self::LinuxAMD64 => "resolc",
             Self::LinuxARM64 => "resolc",
-            Self::MacAMD => "resolc.wasm",
-            Self::MacARM => "resolc.wasm",
+            Self::MacAMD => "resolc",
+            Self::MacARM => "resolc",
         }
     }
     fn get_solc_prefix(&self) -> &str {
@@ -432,7 +431,7 @@ fn compile_output(output: Output) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use semver::Version;
-    use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
+    use std::os::unix::process::ExitStatusExt;
     use tempfile::tempdir;
 
     #[derive(Debug, Deserialize)]
