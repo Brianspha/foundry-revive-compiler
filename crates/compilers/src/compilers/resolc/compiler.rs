@@ -57,8 +57,8 @@ impl ResolcOS {
         match self {
             Self::LinuxAMD64 => "resolc",
             Self::LinuxARM64 => "resolc",
-            Self::MacAMD => "resolc",
-            Self::MacARM => "resolc",
+            Self::MacAMD => "resolc.wasm",
+            Self::MacARM => "resolc.wasm",
         }
     }
     fn get_solc_prefix(&self) -> &str {
@@ -374,10 +374,7 @@ fn try_lock_file(lock_path: PathBuf) -> Result<LockFile> {
 
     Ok(LockFile { lock_path, _lock_file })
 }
-fn normalize_version(version_str: &str) -> Result<Version, semver::Error> {
-    let normalized = version_str.replace("dev-", "dev.");
-    Version::parse(&normalized)
-}
+
 #[cfg(feature = "async")]
 struct LockFile {
     _lock_file: File,
@@ -642,7 +639,10 @@ mod tests {
         let out: ResolcCompilerOutput = resolc_instance().compile(&input).unwrap();
         assert!(!out.has_error());
     }
-
+    fn normalize_version(version_str: &str) -> Result<Version, semver::Error> {
+        let normalized = version_str.replace("dev-", "dev.");
+        Version::parse(&normalized)
+    }
     async fn fetch_github_versions() -> Result<Vec<Version>> {
         let client = reqwest::Client::new();
         let tags: Vec<GitHubTag> = client
@@ -670,7 +670,7 @@ mod tests {
 
         RuntimeOrHandle::new()
             .block_on(fetch_github_versions())
-            .unwrap_or_else(|_| vec![Version::parse("0.1.0-dev.6").unwrap()])
+            .unwrap_or_else(|_| vec![Version::parse("0.1.0-dev-6").unwrap()])
     }
 
     #[cfg(feature = "async")]
