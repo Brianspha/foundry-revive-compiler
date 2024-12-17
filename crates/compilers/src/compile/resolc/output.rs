@@ -146,7 +146,7 @@ impl ResolcProjectCompileOutput {
         &self.cached_artifacts
     }
 
-    /// Returns the set of `Artifacts` that were compiled with `zksolc` in
+    /// Returns the set of `Artifacts` that were compiled with `resolc` in
     /// [`crate::Project::compile()`]
     pub fn compiled_artifacts(&self) -> &Artifacts<ContractArtifact> {
         &self.compiled_artifacts
@@ -214,7 +214,7 @@ pub struct AggregatedCompilerOutput {
     pub sources: VersionedSourceFiles,
     /// All compiled contracts combined with the solc version used to compile them
     pub contracts: VersionedContracts,
-    // All the `BuildInfo`s of zksolc invocations.
+    // All the `BuildInfo`s of resolc invocations.
     pub build_infos: Vec<RawBuildInfo<SolcLanguage>>,
 }
 
