@@ -401,13 +401,13 @@ fn map_io_err(resolc_path: &Path) -> impl FnOnce(std::io::Error) -> SolcError + 
 fn version_from_output(output: Output) -> Result<Version> {
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let version_line = stdout
+        let version = stdout
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .find(|line| line.contains("version"))
+            .last()
             .ok_or_else(|| SolcError::msg("Version not found in resolc output"))?;
 
-        version_line
+        version
             .split_whitespace()
             .find_map(|s| {
                 let trimmed = s.trim_start_matches('v');
@@ -461,7 +461,13 @@ mod tests {
             _ => panic!("Unsupported OS for test"),
         }
     }
-
+    #[test]
+    fn resolc_version_works() {
+        Resolc::get_version_for_path(&mut PathBuf::from(
+            revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned(),
+        ))
+        .unwrap();
+    }
     #[test]
     fn test_resolc_prefix() {
         let os = get_operating_system().unwrap();
