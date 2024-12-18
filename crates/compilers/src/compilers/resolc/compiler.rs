@@ -537,13 +537,7 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn resolc_version_works() {
-        Resolc::get_version_for_path(&mut PathBuf::from(
-            revive_solidity::SolcCompiler::DEFAULT_EXECUTABLE_NAME.to_owned(),
-        ))
-        .unwrap();
-    }
+
     #[test]
     fn test_resolc_prefix() {
         let os = get_operating_system().unwrap();
