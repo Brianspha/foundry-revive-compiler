@@ -1,7 +1,11 @@
+use alloy_primitives::map::HashMap;
 use foundry_compilers_artifacts::{SolcLanguage, Source, Sources};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use crate::CompilerInput;
 
@@ -50,7 +54,7 @@ impl CompilerInput for ResolcVersionedInput {
     }
 
     fn version(&self) -> &Version {
-        todo!()
+        &self.solc_version
     }
 
     fn sources(&self) -> impl Iterator<Item = (&Path, &Source)> {
@@ -58,11 +62,22 @@ impl CompilerInput for ResolcVersionedInput {
     }
 
     fn compiler_name(&self) -> std::borrow::Cow<'static, str> {
-        todo!()
+        "resolc".into()
     }
 
-    fn strip_prefix(&mut self, _base: &Path) {
-        todo!()
+    fn strip_prefix(&mut self, base: &Path) {
+        let mut new_sources = BTreeMap::new();
+
+        for (path, source) in self.input.sources.0.iter() {
+            let final_path = if let Ok(stripped) = path.strip_prefix(base) {
+                stripped.to_path_buf()
+            } else {
+                path.clone()
+            };
+
+            new_sources.insert(final_path, source.clone());
+        }
+        self.input.sources = Sources(new_sources);
     }
 }
 
