@@ -404,13 +404,14 @@ fn version_from_output(output: Output) -> Result<Version> {
         let version = stdout
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .last()
+            .find(|l| l.contains("version"))
             .ok_or_else(|| SolcError::msg("Version not found in resolc output"))?;
 
         version
             .split_whitespace()
-            .find_map(|s| {
-                let trimmed = s.trim_start_matches('v');
+            .find(|s| s.starts_with("0.") || s.starts_with("v0."))
+            .and_then(|s| {
+                let trimmed = s.trim_start_matches('v').split('+').next().unwrap_or(s);
                 Version::from_str(trimmed).ok()
             })
             .ok_or_else(|| SolcError::msg("Unable to retrieve version from resolc output"))
@@ -459,6 +460,81 @@ mod tests {
                 _ => assert!(matches!(os, ResolcOS::MacAMD)),
             },
             _ => panic!("Unsupported OS for test"),
+        }
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn test_install_and_verify_version() {
+        use std::process::Command;
+
+        let expected_version = Version::parse("0.1.0-dev.6").unwrap();
+
+        let installed_path = match Resolc::blocking_install(&expected_version) {
+            Ok(path) => path,
+            Err(e) => {
+                panic!("Failed to install version {}: {}", expected_version, e);
+            }
+        };
+
+        assert!(installed_path.exists(), "Installed binary should exist");
+        assert!(installed_path.is_file(), "Should be a file");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = std::fs::metadata(&installed_path).unwrap();
+            let permissions = metadata.permissions();
+            assert!(permissions.mode() & 0o111 != 0, "Binary should be executable");
+        }
+
+        let version_output = Command::new(&installed_path).arg("--version").output();
+
+        match version_output {
+            Ok(output) => {
+                println!("Direct execution output: {:?}", String::from_utf8_lossy(&output.stdout));
+                println!("Direct execution stderr: {:?}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                println!("Direct execution error: {}", e);
+            }
+        }
+
+        match Resolc::get_version_for_path(&installed_path) {
+            Ok(actual_version) => {
+                assert_eq!(
+                    actual_version, expected_version,
+                    "Installed version should match requested version"
+                );
+            }
+            Err(e) => {
+                println!("Error getting version: {}", e);
+                println!("Installed path: {:?}", installed_path);
+
+                #[cfg(unix)]
+                {
+                    let file_type = Command::new("file")
+                        .arg(&installed_path)
+                        .output()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                        .unwrap_or_else(|e| format!("Failed to run 'file': {}", e));
+                    println!("File type: {}", file_type);
+                }
+
+                panic!("Failed to get version from installed binary with detailed error: {}", e);
+            }
+        }
+
+        match Resolc::find_installed_version(&expected_version) {
+            Ok(Some(found_path)) => {
+                assert_eq!(found_path, installed_path, "Found path should match installed path");
+            }
+            Ok(None) => {
+                panic!("Version {} not found after installation", expected_version);
+            }
+            Err(e) => {
+                panic!("Error finding installed version: {}", e);
+            }
         }
     }
     #[test]
