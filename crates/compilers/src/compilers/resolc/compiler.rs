@@ -1,10 +1,9 @@
 use crate::{
     error::{Result, SolcError},
-    resolver::parse::SolData, Compiler, CompilerVersion,
+    resolver::parse::SolData,
+    Compiler, CompilerVersion,
 };
-use foundry_compilers_artifacts::{
-    resolc::ResolcCompilerOutput, Error, SolcLanguage,
-};
+use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -84,10 +83,10 @@ impl ResolcOS {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-/// solc and solc version may not be read anywhere in this code but 
+/// solc and solc version may not be read anywhere in this code but
 /// I forsee their use elswhere in the foundry project
-/// So for now we keep them if needed we can remove them in future 
-/// Itterations 
+/// So for now we keep them if needed we can remove them in future
+/// Itterations
 pub struct Resolc {
     pub resolc: PathBuf,
     pub extra_args: Vec<String>,
@@ -206,14 +205,28 @@ impl Resolc {
         RuntimeOrHandle::new().block_on(async {
             let client = reqwest::Client::new();
 
-            let builds: SolcBuilds = client
+            let response = client
                 .get(builds_list_url)
                 .send()
                 .await
-                .map_err(|e| SolcError::msg(format!("Failed to fetch solc builds: {}", e)))?
-                .json()
+                .map_err(|e| SolcError::msg(format!("Failed to fetch solc builds: {}", e)))?;
+
+            if !response.status().is_success() {
+                return Err(SolcError::msg(format!(
+                    "Failed to fetch builds list, status: {}",
+                    response.status()
+                )));
+            }
+
+            let text = response
+                .text()
                 .await
-                .map_err(|e| SolcError::msg(format!("Failed to parse solc builds: {}", e)))?;
+                .map_err(|e| SolcError::msg(format!("Failed to get response text: {}", e)))?;
+
+            let builds: SolcBuilds = serde_json::from_str(&text).map_err(|e| {
+                println!("Failed to parse response: {}", text);
+                SolcError::msg(format!("Failed to parse solc builds ({}): {}", e, text))
+            })?;
 
             let build = builds
                 .builds
@@ -280,11 +293,10 @@ impl Resolc {
             Ok(install_path)
         })
     }
-
     fn solc_home() -> Result<PathBuf> {
         let mut home = dirs::home_dir()
             .ok_or(SolcError::msg("Could not find home directory for solc installation"))?;
-        home.push(".solc"); 
+        home.push(".solc");
         Ok(home)
     }
 
@@ -341,7 +353,6 @@ impl Resolc {
                 .await
                 .map_err(|e| SolcError::msg(format!("Failed to download solc: {}", e)))?;
 
-            // Create parent directories if needed
             if let Some(parent) = install_path.parent() {
                 if !parent.exists() {
                     std::fs::create_dir_all(parent).map_err(|e| {
@@ -350,7 +361,6 @@ impl Resolc {
                 }
             }
 
-            // Take lock while installing
             let _lock = try_lock_file(lock_path)?;
 
             if !install_path.exists() {
@@ -657,7 +667,10 @@ fn compile_output(output: Output) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{compilers::SourceLocation, CompilationError};
+
     use super::*;
+    use foundry_compilers_artifacts::Severity;
     use semver::Version;
     use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
     use tempfile::tempdir;
@@ -1352,5 +1365,22 @@ mod tests {
 
         let v3 = v1.clone();
         assert_eq!(v1, v3);
+    }
+    #[test]
+    fn test_solc_builds_json_parsing() {
+        let json = r#"{
+        "builds": [
+            {
+                "path": "solc-linux-amd64-v0.8.20+commit.a1b79de6",
+                "version": "0.8.20",
+                "sha256": "hash",
+                "size": "size"
+            }
+        ]
+    }"#;
+
+        let builds: SolcBuilds = serde_json::from_str(json).expect("Should parse valid JSON");
+        assert!(!builds.builds.is_empty());
+        assert_eq!(builds.builds[0].version, "0.8.20");
     }
 }
