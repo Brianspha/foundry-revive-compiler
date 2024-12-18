@@ -176,15 +176,15 @@ impl Reporter for SpinnerReporter {
     }
 
     fn on_solc_installation_start(&self, version: &Version) {
-        self.send_msg(format!("Installing Solc version {version}"));
+        self.send_msg(format!("Installing resolc version {version}"));
     }
 
     fn on_solc_installation_success(&self, version: &Version) {
-        self.send_msg(format!("Successfully installed Solc {version}"));
+        self.send_msg(format!("Successfully installed resolc {version}"));
     }
 
     fn on_solc_installation_error(&self, version: &Version, error: &str) {
-        self.send_msg(format!("Failed to install Solc {version}: {error}").red().to_string());
+        self.send_msg(format!("Failed to install resolc {version}: {error}").red().to_string());
     }
 
     fn on_unresolved_imports(&self, imports: &[(&Path, &Path)], remappings: &[Remapping]) {
