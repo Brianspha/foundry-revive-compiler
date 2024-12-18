@@ -1,10 +1,9 @@
 use crate::{
     error::{Result, SolcError},
-    resolver::parse::SolData,
-    CompilationError, Compiler, CompilerVersion,
+    resolver::parse::SolData, Compiler, CompilerVersion,
 };
 use foundry_compilers_artifacts::{
-    resolc::ResolcCompilerOutput, solc::error::SourceLocation, Error, Severity, SolcLanguage,
+    resolc::ResolcCompilerOutput, Error, SolcLanguage,
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -25,6 +24,7 @@ use which;
 #[cfg(target_family = "unix")]
 #[cfg(feature = "async")]
 use super::{ResolcInput, ResolcSettings, ResolcVersionedInput};
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SolcBuild {
     path: String,
@@ -82,7 +82,12 @@ impl ResolcOS {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
+/// solc and solc version may not be read anywhere in this code but 
+/// I forsee their use elswhere in the foundry project
+/// So for now we keep them if needed we can remove them in future 
+/// Itterations 
 pub struct Resolc {
     pub resolc: PathBuf,
     pub extra_args: Vec<String>,
@@ -279,7 +284,7 @@ impl Resolc {
     fn solc_home() -> Result<PathBuf> {
         let mut home = dirs::home_dir()
             .ok_or(SolcError::msg("Could not find home directory for solc installation"))?;
-        home.push(".solc"); // Keep solc installs separate from resolc
+        home.push(".solc"); 
         Ok(home)
     }
 
