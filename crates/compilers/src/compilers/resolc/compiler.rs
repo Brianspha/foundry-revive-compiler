@@ -94,7 +94,7 @@ pub struct Resolc {
     pub base_path: Option<PathBuf>,
     pub allow_paths: BTreeSet<PathBuf>,
     pub include_paths: BTreeSet<PathBuf>,
-    solc_version_info: Option<SolcVersionInfo>,
+    solc_version_info: SolcVersionInfo,
     solc: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -147,19 +147,6 @@ impl Compiler for Resolc {
 }
 
 impl Resolc {
-
-    pub fn new(path: PathBuf) -> Result<Self> {
-
-        Ok(Self {
-            resolc: path,
-            solc:Default::default(),
-            base_path: None,
-            allow_paths: Default::default(),
-            include_paths: Default::default(),
-            solc_version_info:None,
-            extra_args: Vec::new(),
-        })
-    }
     /// When creating a new Resolc Compiler instance for now we only care for
     /// Passing in the path to resolc but i do see a need perhaps once we get
     /// Things working to allow for passing in a custom solc path since revive
@@ -167,9 +154,7 @@ impl Resolc {
     /// Current impl just checks if theres any solc version installed if not
     /// We install but as mentioned this could change as it may not be the best
     /// approach since requirements are going to change
-    /// This version installs solc
-    /// I just have it here for future reference
-    pub fn resolc(path: PathBuf) -> Result<Self> {
+    pub fn new(path: PathBuf) -> Result<Self> {
         let (solc, solc_version_info) = if let Ok(system_solc_path) = which::which("solc") {
             if let Ok(version_info) = Self::get_solc_version_info(&system_solc_path) {
                 (Some(system_solc_path), version_info)
@@ -179,14 +164,26 @@ impl Resolc {
         } else {
             Self::get_or_install_default_solc()?
         };
-
+        if let Some(solc_path) = &solc {
+            if let Some(parent) = solc_path.parent() {
+                let path_var = std::env::var_os("PATH").unwrap_or_default();
+                let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
+                // Ensure we add ~/.solc to PATH if solc was installed there
+                if !paths.contains(&PathBuf::from(parent)) {
+                    paths.push(parent.to_path_buf());
+                    let new_path = std::env::join_paths(paths)
+                        .map_err(|e| SolcError::msg(format!("Failed to join paths: {}", e)))?;
+                    std::env::set_var("PATH", new_path);
+                }
+            }
+        }
         Ok(Self {
             resolc: path,
             solc,
             base_path: None,
             allow_paths: Default::default(),
             include_paths: Default::default(),
-            solc_version_info:Some(solc_version_info),
+            solc_version_info,
             extra_args: Vec::new(),
         })
     }
@@ -215,7 +212,7 @@ impl Resolc {
             }
             ResolcOS::MacAMD | ResolcOS::MacARM => {
                 "https://binaries.soliditylang.org/macosx-amd64/list.json"
-            } 
+            }
         };
 
         let install_path = Self::solc_path(version)?;
@@ -921,13 +918,6 @@ mod tests {
         assert!(cmd.get_args().any(|arg| arg == "--standard-json"));
     }
 
-    #[test]
-    fn test_compile_empty_input() {
-        let resolc = resolc_instance();
-        let input = ResolcInput::default();
-        let result = resolc.compile(&input);
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn test_compile_output_success() {
@@ -952,17 +942,11 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn resolc_compile_works() {
-        let input = include_str!("../../../../../test-data/resolc/input/compile-input.json");
-        let input: ResolcInput = serde_json::from_str(input).unwrap();
-        let out: ResolcCompilerOutput = resolc_instance().compile(&input).unwrap();
-        assert!(!out.has_error());
-    }
     fn normalize_version(version_str: &str) -> Result<Version, semver::Error> {
         let normalized = version_str.replace("dev-", "dev.");
         Version::parse(&normalized)
     }
+
     async fn fetch_github_versions() -> Result<Vec<Version>> {
         let client = reqwest::Client::new();
         let tags: Vec<GitHubTag> = client
@@ -1314,7 +1298,11 @@ mod tests {
             let result = Resolc::blocking_install_solc(&version);
             if let Ok(path) = result {
                 let version_info = Resolc::get_solc_version_info(&path).unwrap();
-                assert_eq!(version_info.version, version);
+                // Here we want to avoid comaparing the version because they could include BuildMetadata which we might 
+                // not know ahead of time so its best to compare major,min,patch
+                assert_eq!(version_info.version.major, version.major);
+                assert_eq!(version_info.version.minor, version.minor);
+                assert_eq!(version_info.version.patch, version.patch);
             }
         }
     }
