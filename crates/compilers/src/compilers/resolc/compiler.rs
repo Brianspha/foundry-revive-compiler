@@ -166,15 +166,8 @@ impl Resolc {
         };
         if let Some(solc_path) = &solc {
             if let Some(parent) = solc_path.parent() {
-                let path_var = std::env::var_os("PATH").unwrap_or_default();
-                let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
-                // Ensure we add ~/.solc to PATH if solc was installed there
-                if !paths.contains(&PathBuf::from(parent)) {
-                    paths.push(parent.to_path_buf());
-                    let new_path = std::env::join_paths(paths)
-                        .map_err(|e| SolcError::msg(format!("Failed to join paths: {}", e)))?;
-                    std::env::set_var("PATH", new_path);
-                }
+                // for some reason solc is not detected so we need to add to path
+                Self::add_to_path(parent)?;
             }
         }
         Ok(Self {
@@ -186,6 +179,24 @@ impl Resolc {
             solc_version_info,
             extra_args: Vec::new(),
         })
+    }
+
+    pub fn add_to_path(dir: &Path) -> Result<()> {
+        let path_var = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
+
+        if !paths.contains(&PathBuf::from(dir)) {
+            paths.push(dir.to_path_buf());
+            let new_path = std::env::join_paths(paths)
+                .map_err(|e| SolcError::msg(format!("Failed to join paths: {}", e)))?;
+            std::env::set_var("PATH", new_path);
+            println!("Added {} to PATH", dir.display());
+        }
+
+        std::env::set_var("SOLC_PATH", dir);
+        println!("Set SOLC_PATH to {}", dir.display());
+
+        Ok(())
     }
     #[cfg(feature = "async")]
     fn get_or_install_default_solc() -> Result<(Option<PathBuf>, SolcVersionInfo)> {
@@ -918,7 +929,6 @@ mod tests {
         assert!(cmd.get_args().any(|arg| arg == "--standard-json"));
     }
 
-
     #[test]
     fn test_compile_output_success() {
         let output = Output {
@@ -1298,7 +1308,7 @@ mod tests {
             let result = Resolc::blocking_install_solc(&version);
             if let Ok(path) = result {
                 let version_info = Resolc::get_solc_version_info(&path).unwrap();
-                // Here we want to avoid comaparing the version because they could include BuildMetadata which we might 
+                // Here we want to avoid comaparing the version because they could include BuildMetadata which we might
                 // not know ahead of time so its best to compare major,min,patch
                 assert_eq!(version_info.version.major, version.major);
                 assert_eq!(version_info.version.minor, version.minor);
