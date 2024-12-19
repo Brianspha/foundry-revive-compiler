@@ -29,7 +29,8 @@ struct SolcBuild {
     path: String,
     version: String,
     sha256: String,
-    size: String,
+    #[serde(default)]
+    size: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,8 +195,12 @@ impl Resolc {
 
         let os = get_operating_system()?;
         let builds_list_url = match os {
-            ResolcOS::LinuxAMD64| ResolcOS::LinuxARM64 => "https://binaries.soliditylang.org/linux-amd64/list.json",
-            ResolcOS::MacAMD | ResolcOS::MacARM => "https://binaries.soliditylang.org/macosx-amd64/list.json", // Use macosx-amd64 for both Intel and ARM
+            ResolcOS::LinuxAMD64 | ResolcOS::LinuxARM64 => {
+                "https://binaries.soliditylang.org/linux-amd64/list.json"
+            }
+            ResolcOS::MacAMD | ResolcOS::MacARM => {
+                "https://binaries.soliditylang.org/macosx-amd64/list.json"
+            } // Use macosx-amd64 for both Intel and ARM
         };
 
         let install_path = Self::solc_path(version)?;
@@ -1372,8 +1377,7 @@ mod tests {
             {
                 "path": "solc-linux-amd64-v0.8.20+commit.a1b79de6",
                 "version": "0.8.20",
-                "sha256": "hash",
-                "size": "size"
+                "sha256": "hash"
             }
         ]
     }"#;
