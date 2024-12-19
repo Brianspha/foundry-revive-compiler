@@ -194,8 +194,7 @@ impl Resolc {
 
         let os = get_operating_system()?;
         let builds_list_url = match os {
-            ResolcOS::LinuxAMD64 => "https://binaries.soliditylang.org/linux-amd64/list.json",
-            ResolcOS::LinuxARM64 => "https://binaries.soliditylang.org/linux-aarch64/list.json",
+            ResolcOS::LinuxAMD64| ResolcOS::LinuxARM64 => "https://binaries.soliditylang.org/linux-amd64/list.json",
             ResolcOS::MacAMD | ResolcOS::MacARM => "https://binaries.soliditylang.org/macosx-amd64/list.json", // Use macosx-amd64 for both Intel and ARM
         };
 
