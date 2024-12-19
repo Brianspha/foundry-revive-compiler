@@ -94,7 +94,7 @@ pub struct Resolc {
     pub base_path: Option<PathBuf>,
     pub allow_paths: BTreeSet<PathBuf>,
     pub include_paths: BTreeSet<PathBuf>,
-    solc_version_info: SolcVersionInfo,
+    solc_version_info: Option<SolcVersionInfo>,
     solc: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -147,6 +147,19 @@ impl Compiler for Resolc {
 }
 
 impl Resolc {
+
+    pub fn new(path: PathBuf) -> Result<Self> {
+
+        Ok(Self {
+            resolc: path,
+            solc:Default::default(),
+            base_path: None,
+            allow_paths: Default::default(),
+            include_paths: Default::default(),
+            solc_version_info:None,
+            extra_args: Vec::new(),
+        })
+    }
     /// When creating a new Resolc Compiler instance for now we only care for
     /// Passing in the path to resolc but i do see a need perhaps once we get
     /// Things working to allow for passing in a custom solc path since revive
@@ -154,7 +167,9 @@ impl Resolc {
     /// Current impl just checks if theres any solc version installed if not
     /// We install but as mentioned this could change as it may not be the best
     /// approach since requirements are going to change
-    pub fn new(path: PathBuf) -> Result<Self> {
+    /// This version installs solc
+    /// I just have it here for future reference
+    pub fn resolc(path: PathBuf) -> Result<Self> {
         let (solc, solc_version_info) = if let Ok(system_solc_path) = which::which("solc") {
             if let Ok(version_info) = Self::get_solc_version_info(&system_solc_path) {
                 (Some(system_solc_path), version_info)
@@ -171,7 +186,7 @@ impl Resolc {
             base_path: None,
             allow_paths: Default::default(),
             include_paths: Default::default(),
-            solc_version_info,
+            solc_version_info:Some(solc_version_info),
             extra_args: Vec::new(),
         })
     }
@@ -200,7 +215,7 @@ impl Resolc {
             }
             ResolcOS::MacAMD | ResolcOS::MacARM => {
                 "https://binaries.soliditylang.org/macosx-amd64/list.json"
-            } // Use macosx-amd64 for both Intel and ARM
+            } 
         };
 
         let install_path = Self::solc_path(version)?;
