@@ -187,6 +187,7 @@ impl Resolc {
         Err(SolcError::msg("No solc found in PATH and async feature disabled for installation"))
     }
 
+    /// todo: remove additional logging statements
     #[cfg(feature = "async")]
     pub fn blocking_install_solc(version: &Version) -> Result<PathBuf> {
         use foundry_compilers_core::utils::RuntimeOrHandle;
@@ -195,8 +196,7 @@ impl Resolc {
         let builds_list_url = match os {
             ResolcOS::LinuxAMD64 => "https://binaries.soliditylang.org/linux-amd64/list.json",
             ResolcOS::LinuxARM64 => "https://binaries.soliditylang.org/linux-aarch64/list.json",
-            ResolcOS::MacAMD => "https://binaries.soliditylang.org/macosx-amd64/list.json",
-            ResolcOS::MacARM => "https://binaries.soliditylang.org/macosx-aarch64/list.json",
+            ResolcOS::MacAMD | ResolcOS::MacARM => "https://binaries.soliditylang.org/macosx-amd64/list.json", // Use macosx-amd64 for both Intel and ARM
         };
 
         let install_path = Self::solc_path(version)?;
