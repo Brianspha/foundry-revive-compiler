@@ -185,6 +185,42 @@ impl Resolc {
         let path_var = std::env::var_os("PATH").unwrap_or_default();
         let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
 
+        let entries: Vec<_> = std::fs::read_dir(dir)
+            .map_err(|e| SolcError::msg(format!("Failed to read directory: {}", e)))?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        let versioned_solc = entries
+            .iter()
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .map(|s| s.starts_with("solc-") && !s.ends_with(".exe"))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| SolcError::msg("Could not find versioned solc binary"))?;
+
+        let solc_name = if cfg!(windows) { "solc.exe" } else { "solc" };
+        let target_solc = dir.join(solc_name);
+
+        if target_solc.exists() {
+            std::fs::remove_file(&target_solc)
+                .map_err(|e| SolcError::msg(format!("Failed to remove existing solc: {}", e)))?;
+        }
+
+        #[cfg(windows)]
+        {
+            std::fs::copy(versioned_solc.path(), &target_solc)
+                .map_err(|e| SolcError::msg(format!("Failed to copy solc binary: {}", e)))?;
+        }
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(versioned_solc.path(), &target_solc)
+                .map_err(|e| SolcError::msg(format!("Failed to create solc symlink: {}", e)))?;
+        }
+
         if !paths.contains(&PathBuf::from(dir)) {
             paths.push(dir.to_path_buf());
             let new_path = std::env::join_paths(paths)
@@ -1398,5 +1434,52 @@ mod tests {
         let builds: SolcBuilds = serde_json::from_str(json).expect("Should parse valid JSON");
         assert!(!builds.builds.is_empty());
         assert_eq!(builds.builds[0].version, "0.8.20");
+    }
+    #[test]
+    fn test_add_to_path_with_real_solc() -> Result<()> {
+        let original_path = std::env::var_os("PATH")
+            .ok_or_else(|| SolcError::msg("Failed to get original PATH"))?;
+
+        let temp_dir = tempdir()
+            .map_err(|e| SolcError::msg(format!("Failed to create temporary directory: {}", e)))?;
+
+        let version = Version::new(0, 8, 28);
+        let os = get_operating_system()?;
+        let solc_name = format!("{}v{}", os.get_solc_prefix(), version);
+        let solc_path = temp_dir.path().join(&solc_name);
+
+        let installed_path = Resolc::blocking_install_solc(&version)?;
+
+        std::fs::copy(&installed_path, &solc_path)
+            .map_err(|e| SolcError::msg(format!("Failed to copy solc binary: {}", e)))?;
+
+        Resolc::add_to_path(temp_dir.path())?;
+
+        let new_path =
+            std::env::var_os("PATH").ok_or_else(|| SolcError::msg("Failed to get updated PATH"))?;
+        let paths: Vec<_> = std::env::split_paths(&new_path).collect();
+        assert!(paths.contains(&temp_dir.path().to_path_buf()));
+
+        let solc_path_var = std::env::var("SOLC_PATH")
+            .map_err(|e| SolcError::msg(format!("Failed to get SOLC_PATH: {}", e)))?;
+        assert_eq!(solc_path_var, temp_dir.path().to_string_lossy());
+
+        let solc_binary = temp_dir.path().join(if cfg!(windows) { "solc.exe" } else { "solc" });
+        assert!(solc_binary.exists(), "solc binary should exist");
+
+        let output = std::process::Command::new(&solc_binary)
+            .arg("--version")
+            .output()
+            .map_err(|e| SolcError::msg(format!("Failed to execute solc --version: {}", e)))?;
+
+        assert!(output.status.success(), "solc --version should succeed");
+
+        let version_output = String::from_utf8(output.stdout)
+            .map_err(|e| SolcError::msg(format!("Failed to parse version output: {}", e)))?;
+        assert!(version_output.contains("0.8.28"), "Version output should contain 0.8.28");
+
+        std::env::set_var("PATH", original_path);
+
+        Ok(())
     }
 }
