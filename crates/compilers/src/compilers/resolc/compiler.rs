@@ -264,8 +264,8 @@ impl Resolc {
             let mut hasher = sha2::Sha256::new();
             hasher.update(&content);
             let checksum = format!("{:x}", hasher.finalize());
-
-            if checksum != build.sha256 {
+            // Here we want to ensure that we strip away the '0x'from the instance produced by sha256
+            if checksum != build.sha256.trim_start_matches("0x").to_lowercase() {
                 return Err(SolcError::msg(format!(
                     "Checksum mismatch for solc {}: expected {}, got {}",
                     version, build.sha256, checksum
