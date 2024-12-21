@@ -519,7 +519,8 @@ fn compile_sequential<'a>(
                 input.version(),
                 actually_dirty.as_slice(),
             );
-            let output = compiler.compile(&input.input)?;
+            let resolc = compiler.resolc(&input)?;
+            let output = resolc.compile(&input.input)?;
             report::compiler_success(&input.compiler_name(), input.version(), &start.elapsed());
 
             Ok((input, output, profile, actually_dirty))
@@ -553,8 +554,8 @@ fn compile_parallel<'a>(
                     input.version(),
                     actually_dirty.as_slice(),
                 );
-
-                let result = compiler.compile(&input.input).map(|output| {
+                let resolc = compiler.resolc(&input)?;
+                let result = resolc.compile(&input.input).map(|output| {
                     report::compiler_success(
                         &input.compiler_name(),
                         input.version(),
