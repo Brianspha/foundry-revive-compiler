@@ -2,7 +2,7 @@ use alloy_primitives::map::HashMap;
 use foundry_compilers_artifacts::Remapping;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     path::{Path, PathBuf},
 };
 
@@ -26,6 +26,8 @@ pub struct ResolcSettings {
     pub optimizer: ResolcOptimizer,
     #[serde(rename = "outputSelection")]
     pub outputselection: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remappings: Vec<Remapping>,
     #[serde(skip)]
     pub resolc_settings: ResolcCliSettings,
 }
@@ -86,8 +88,11 @@ impl CompilerSettings for ResolcSettings {
         }
     }
 
-    fn with_remappings(self, _remappings: &[Remapping]) -> Self {
-        self
+    fn with_remappings(self, remappings: &[Remapping]) -> Self {
+        Self {
+            remappings: remappings.to_vec(),
+            ..self
+        }
     }
 
     fn with_base_path(self, base_path: &Path) -> Self {
@@ -131,7 +136,8 @@ impl ResolcSettings {
         optimizer: ResolcOptimizer,
         output_selection: HashMap<String, HashMap<String, Vec<String>>>,
         resolc_settings: ResolcCliSettings,
+        remappings: Vec<Remapping>,
     ) -> Self {
-        Self { optimizer, outputselection: output_selection, resolc_settings }
+        Self { optimizer, outputselection: output_selection, resolc_settings, remappings }
     }
 }

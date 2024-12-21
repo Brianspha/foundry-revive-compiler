@@ -3,7 +3,7 @@ use crate::{
     resolver::parse::SolData,
     Compiler, CompilerVersion,
 };
-use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
+use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, Remapping, SolcLanguage};
 use itertools::Itertools;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub struct ResolcCliSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_path: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub include_paths: BTreeSet<PathBuf>,
+    pub include_paths: BTreeSet<PathBuf>
 }
 #[derive(Debug, Deserialize)]
 struct SolcBuilds {
