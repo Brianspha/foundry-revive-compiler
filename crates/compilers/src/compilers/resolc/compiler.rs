@@ -201,7 +201,7 @@ impl Resolc {
         let solc_path = match Self::get_path_for_version(&input.solc_version) {
             Ok(path) => path,
             _ => {
-                let installed_solc_path = Self::solc_blocking_install(&input.solc_version)?;
+                let installed_solc_path = Self::blocking_install_solc(&input.solc_version)?;
                 installed_solc_path
             }
         };
@@ -427,71 +427,6 @@ impl Resolc {
         } else {
             Ok(None)
         }
-    }
-    #[cfg(feature = "async")]
-    pub fn solc_blocking_install(version: &Version) -> Result<PathBuf> {
-        use foundry_compilers_core::utils::RuntimeOrHandle;
-
-        let os = get_operating_system()?;
-        let platform = match os {
-            ResolcOS::LinuxAMD64 | ResolcOS::LinuxARM64 => "linux-amd64",
-            ResolcOS::MacAMD | ResolcOS::MacARM => "macosx-amd64",
-        };
-
-        let download_url = format!(
-            "https://binaries.soliditylang.org/{}/solc-{}-v{}",
-            platform, platform, version
-        );
-
-        let install_path = Self::solc_path(version)?;
-        let lock_path = lock_file_path("solc", &version.to_string());
-
-        RuntimeOrHandle::new().block_on(async {
-            let client = reqwest::Client::new();
-            let response = client
-                .get(&download_url)
-                .send()
-                .await
-                .map_err(|e| SolcError::msg(format!("Failed to download solc: {}", e)))?;
-
-            if !response.status().is_success() {
-                return Err(SolcError::msg(format!(
-                    "Failed to download solc: HTTP {}",
-                    response.status()
-                )));
-            }
-
-            let content = response
-                .bytes()
-                .await
-                .map_err(|e| SolcError::msg(format!("Failed to download solc: {}", e)))?;
-
-            if let Some(parent) = install_path.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        SolcError::msg(format!("Failed to create solc directories: {}", e))
-                    })?;
-                }
-            }
-
-            let _lock = try_lock_file(lock_path)?;
-
-            if !install_path.exists() {
-                std::fs::write(&install_path, content)
-                    .map_err(|e| SolcError::msg(format!("Failed to write solc binary: {}", e)))?;
-
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&install_path, PermissionsExt::from_mode(0o755))
-                        .map_err(|e| {
-                            SolcError::msg(format!("Failed to set solc permissions: {}", e))
-                        })?;
-                }
-            }
-
-            Ok(install_path)
-        })
     }
 
     pub fn solc_available_versions() -> Vec<Version> {
