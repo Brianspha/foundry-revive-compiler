@@ -434,10 +434,8 @@ impl Resolc {
 
         let os = get_operating_system()?;
         let platform = match os {
-            ResolcOS::LinuxAMD64 => "linux-amd64",
-            ResolcOS::LinuxARM64 => "linux-aarch64",
-            ResolcOS::MacAMD => "macosx-amd64",
-            ResolcOS::MacARM => "macosx-aarch64",
+            ResolcOS::LinuxAMD64 | ResolcOS::LinuxARM64 => "linux-amd64",
+            ResolcOS::MacAMD | ResolcOS::MacARM => "macosx-amd64",
         };
 
         let download_url = format!(
