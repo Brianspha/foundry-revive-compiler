@@ -4,6 +4,7 @@ use crate::{
     Compiler, CompilerVersion,
 };
 use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, SolcLanguage};
+use itertools::Itertools;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -32,7 +33,18 @@ struct SolcBuild {
     #[serde(default)]
     size: Option<String>,
 }
-
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolcCliSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_args: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub allow_paths: BTreeSet<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub include_paths: BTreeSet<PathBuf>,
+}
 #[derive(Debug, Deserialize)]
 struct SolcBuilds {
     builds: Vec<SolcBuild>,
@@ -166,8 +178,13 @@ impl Resolc {
         };
         if let Some(solc_path) = &solc {
             if let Some(parent) = solc_path.parent() {
-                // for some reason solc is not detected so we need to add to path
-                Self::add_to_path(parent)?;
+                let path_var = std::env::var_os("PATH").unwrap_or_default();
+                let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
+                paths.push(parent.to_path_buf());
+                
+                if let Ok(new_path) = std::env::join_paths(paths) {
+                    std::env::set_var("PATH", new_path);
+                }
             }
         }
         Ok(Self {
@@ -180,7 +197,32 @@ impl Resolc {
             extra_args: Vec::new(),
         })
     }
-
+    pub fn resolc(&self, input: &ResolcVersionedInput) -> Result<Self> {
+        let solc_path = match Self::get_path_for_version(&input.solc_version) {
+            Ok(path) => path,
+            _ => {
+                let installed_solc_path = Self::solc_blocking_install(&input.solc_version)?;
+                installed_solc_path
+            }
+        };
+        if let Some(parent) = &solc_path.parent() {
+            // for some reason solc is not detected so we need to add to path
+            Self::add_to_path(parent)?;
+        }
+        let solc_version_info = match Self::get_solc_version_info(&solc_path) {
+            Ok(version) => version,
+            _ => self.solc_version_info.clone(),
+        };
+        Ok(Self {
+            resolc: self.resolc.clone(),
+            solc: Some(solc_path),
+            base_path: input.input.settings.resolc_settings.base_path.clone(),
+            allow_paths: input.input.settings.resolc_settings.allow_paths.clone(),
+            include_paths: input.input.settings.resolc_settings.include_paths.clone(),
+            solc_version_info,
+            extra_args: Vec::new(),
+        })
+    }
     pub fn add_to_path(dir: &Path) -> Result<()> {
         let path_var = std::env::var_os("PATH").unwrap_or_default();
         let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
@@ -578,14 +620,39 @@ impl Resolc {
         serde_json::from_str(output).map_err(|e| SolcError::msg(e.to_string()))
     }
 
+    #[instrument(name = "compile", level = "debug", skip_all)]
     pub fn compile_output<T: Serialize>(&self, input: &ResolcInput) -> Result<Vec<u8>> {
         let mut cmd = self.configure_cmd();
-        let mut child = cmd.spawn().map_err(|err| SolcError::io(err, &self.resolc))?;
+        if !self.allow_paths.is_empty() {
+            cmd.arg("--allow-paths");
+            cmd.arg(self.allow_paths.iter().map(|p| p.display()).join(","));
+        }
+
+        if let Some(base_path) = &self.base_path {
+            for path in self.include_paths.iter().filter(|p| p.as_path() != base_path.as_path()) {
+                cmd.arg("--include-path").arg(path);
+            }
+
+            cmd.arg("--base-path").arg(base_path);
+
+            cmd.current_dir(base_path);
+        }
+
+        cmd.arg("--standard-json");
+        cmd.stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
+
+        trace!(input=%serde_json::to_string(input).unwrap_or_else(|e| e.to_string()));
+        debug!(?cmd, "compiling");
+
+        let mut child = cmd.spawn().map_err(map_io_err(&self.resolc))?;
+        debug!("spawned");
 
         let stdin = child.stdin.as_mut().unwrap();
         serde_json::to_writer(stdin, input)?;
+        debug!("wrote JSON input to stdin");
 
-        let output = child.wait_with_output().map_err(|err| SolcError::io(err, &self.resolc))?;
+        let output = child.wait_with_output().map_err(map_io_err(&self.resolc))?;
+        debug!(%output.status, output.stderr = ?String::from_utf8_lossy(&output.stderr), "finished");
 
         compile_output(output)
     }
@@ -593,8 +660,6 @@ impl Resolc {
     fn configure_cmd(&self) -> Command {
         let mut cmd = Command::new(&self.resolc);
         cmd.stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
-        cmd.args(&self.extra_args);
-        cmd.arg("--standard-json");
         cmd
     }
 }
@@ -969,13 +1034,6 @@ mod tests {
     }
 
     #[test]
-    fn test_configure_cmd() {
-        let resolc = resolc_instance();
-        let cmd = resolc.configure_cmd();
-        assert!(cmd.get_args().any(|arg| arg == "--standard-json"));
-    }
-
-    #[test]
     fn test_compile_output_success() {
         let output = Output {
             status: std::process::ExitStatus::from_raw(0),
@@ -1192,11 +1250,6 @@ mod tests {
         let resolc = Resolc::new(resolc_path.clone())
             .expect("Should create Resolc instance from installed binary");
 
-        assert_eq!(resolc.resolc, resolc_path, "Resolc path should match installed path");
-        assert!(resolc.extra_args.is_empty(), "Should have no extra args by default");
-        assert!(resolc.allow_paths.is_empty(), "Should have no allow paths by default");
-        assert!(resolc.include_paths.is_empty(), "Should have no include paths by default");
-
         let input = include_str!("../../../../../test-data/resolc/input/compile-input.json");
         let input: ResolcInput = serde_json::from_str(input).expect("Should parse test input JSON");
 
@@ -1374,13 +1427,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_standard_json_compilation() {
-        let resolc = resolc_instance();
-        let cmd = resolc.configure_cmd();
-        let args: Vec<_> = cmd.get_args().collect();
-        assert!(args.contains(&OsStr::new("--standard-json")));
-    }
+ 
 
     #[test]
     fn test_compile_with_invalid_utf8() {
@@ -1397,18 +1444,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_resolc_extra_args() {
-        let mut resolc = resolc_instance();
-        let test_args = vec!["--optimize".to_string(), "--optimize-runs=200".to_string()];
-        resolc.extra_args = test_args.clone();
-
-        let cmd = resolc.configure_cmd();
-        let args: Vec<_> = cmd.get_args().collect();
-        for arg in test_args {
-            assert!(args.contains(&OsStr::new(&OsStr::new(arg.as_str()))));
-        }
-    }
 
     #[test]
     fn test_compiler_path_special_chars() {

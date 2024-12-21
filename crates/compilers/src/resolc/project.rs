@@ -452,7 +452,8 @@ impl<'a> CompilerSources<'a> {
                 }
 
                 trace!("calling {} with {} sources {:?}", version, sources.len(), sources.keys());
-
+                // Revive doesnt seem to support specifying --remappings 
+                // But we still need to call .with_remappings here 
                 let settings = opt_settings
                     .with_base_path(&project.paths.root)
                     .with_allow_paths(&project.paths.allowed_paths)

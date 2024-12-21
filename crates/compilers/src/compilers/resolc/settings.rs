@@ -8,6 +8,8 @@ use std::{
 
 use crate::{CompilerSettings, CompilerSettingsRestrictions};
 
+use super::compiler::ResolcCliSettings;
+
 /// This file contains functionality required by revive/resolc
 /// Some functions are stubbed but will be implemented as needed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,9 +23,11 @@ pub struct ResolcOptimizer {
 #[serde(rename_all = "camelCase")]
 #[derive(Default)]
 pub struct ResolcSettings {
-    optimizer: ResolcOptimizer,
+    pub optimizer: ResolcOptimizer,
     #[serde(rename = "outputSelection")]
-    outputselection: HashMap<String, HashMap<String, Vec<String>>>,
+    pub outputselection: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(skip)]
+    pub resolc_settings: ResolcCliSettings,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy)]
@@ -86,16 +90,34 @@ impl CompilerSettings for ResolcSettings {
         self
     }
 
-    fn with_base_path(self, _base_path: &Path) -> Self {
-        self
+    fn with_base_path(self, base_path: &Path) -> Self {
+        Self {
+            resolc_settings: ResolcCliSettings {
+                base_path: Some(base_path.to_path_buf()),
+                ..self.resolc_settings
+            },
+            ..self
+        }
     }
 
-    fn with_allow_paths(self, _allowed_paths: &BTreeSet<PathBuf>) -> Self {
-        self
+    fn with_allow_paths(self, allow_paths: &BTreeSet<PathBuf>) -> Self {
+        Self {
+            resolc_settings: ResolcCliSettings {
+                allow_paths: allow_paths.clone(),
+                ..self.resolc_settings
+            },
+            ..self
+        }
     }
 
-    fn with_include_paths(self, _include_paths: &BTreeSet<PathBuf>) -> Self {
-        self
+    fn with_include_paths(self, include_paths: &BTreeSet<PathBuf>) -> Self {
+        Self {
+            resolc_settings: ResolcCliSettings {
+                include_paths: include_paths.clone(),
+                ..self.resolc_settings
+            },
+            ..self
+        }
     }
 }
 
@@ -108,7 +130,8 @@ impl ResolcSettings {
     pub fn new(
         optimizer: ResolcOptimizer,
         output_selection: HashMap<String, HashMap<String, Vec<String>>>,
+        resolc_settings: ResolcCliSettings,
     ) -> Self {
-        Self { optimizer, outputselection: output_selection }
+        Self { optimizer, outputselection: output_selection, resolc_settings }
     }
 }
