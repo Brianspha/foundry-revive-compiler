@@ -181,7 +181,7 @@ impl Resolc {
                 let path_var = std::env::var_os("PATH").unwrap_or_default();
                 let mut paths = std::env::split_paths(&path_var).collect::<Vec<_>>();
                 paths.push(parent.to_path_buf());
-                
+
                 if let Ok(new_path) = std::env::join_paths(paths) {
                     std::env::set_var("PATH", new_path);
                 }
@@ -634,7 +634,6 @@ impl Resolc {
             }
 
             cmd.arg("--base-path").arg(base_path);
-
             cmd.current_dir(base_path);
         }
 
@@ -1427,8 +1426,6 @@ mod tests {
         }
     }
 
- 
-
     #[test]
     fn test_compile_with_invalid_utf8() {
         let resolc = resolc_instance();
@@ -1443,7 +1440,6 @@ mod tests {
         let result = String::from_utf8(bytes);
         assert!(result.is_err());
     }
-
 
     #[test]
     fn test_compiler_path_special_chars() {
