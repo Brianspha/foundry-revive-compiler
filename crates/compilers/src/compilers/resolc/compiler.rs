@@ -3,6 +3,8 @@ use crate::{
     resolver::parse::SolData,
     Compiler, CompilerVersion,
 };
+use crate::compilers::VersionReq;
+use once_cell::sync::Lazy;
 use foundry_compilers_artifacts::{resolc::ResolcCompilerOutput, Error, Remapping, SolcLanguage};
 use itertools::Itertools;
 use semver::Version;
@@ -20,7 +22,13 @@ use std::{
     io::Write,
 };
 use which;
+// `--base-path` was introduced in 0.6.9 <https://github.com/ethereum/solidity/releases/tag/v0.6.9>
+pub static SUPPORTS_BASE_PATH: Lazy<VersionReq> =
+    Lazy::new(|| VersionReq::parse(">=0.6.9").unwrap());
 
+// `--include-path` was introduced in 0.8.8 <https://github.com/ethereum/solidity/releases/tag/v0.8.8>
+pub static SUPPORTS_INCLUDE_PATH: Lazy<VersionReq> =
+    Lazy::new(|| VersionReq::parse(">=0.8.8").unwrap());
 #[cfg(target_family = "unix")]
 #[cfg(feature = "async")]
 use super::{ResolcInput, ResolcSettings, ResolcVersionedInput};
@@ -562,11 +570,21 @@ impl Resolc {
         }
 
         if let Some(base_path) = &self.base_path {
-            for path in self.include_paths.iter().filter(|p| p.as_path() != base_path.as_path()) {
-                cmd.arg("--include-path").arg(path);
+            if SUPPORTS_BASE_PATH.matches(&self.solc_version_info.version) {
+                if SUPPORTS_INCLUDE_PATH.matches(&self.solc_version_info.version) {
+                    // `--base-path` and `--include-path` conflict if set to the same path, so
+                    // as a precaution, we ensure here that the `--base-path` is not also used
+                    // for `--include-path`
+                    for path in
+                        self.include_paths.iter().filter(|p| p.as_path() != base_path.as_path())
+                    {
+                        cmd.arg("--include-path").arg(path);
+                    }
+                }
+
+                cmd.arg("--base-path").arg(base_path);
             }
 
-            cmd.arg("--base-path").arg(base_path);
             cmd.current_dir(base_path);
         }
 
